@@ -48,47 +48,36 @@ extension NBFetchService {
 	}
 	
 	public func fetch<T: Decodable>(
-		from url: URL,
-		completion: @escaping (Result<T, Error>) -> Void
-	) {
-		DispatchQueue.global(qos: .userInitiated).async {
-			let task = URLSession.shared.dataTask(with: url) { data, response, error in
-				if let error = error {
-					completion(.failure(NBFetchServiceError.networkError(error)))
-					return
-				}
-				
-				guard let data = data else {
-					completion(.failure(NBFetchServiceError.noData))
-					return
-				}
-				
-				do {
-					let decoder = JSONDecoder()
-					let decodedData = try decoder.decode(T.self, from: data)
-					completion(.success(decodedData))
-				} catch let decodingError as DecodingError {
-					if case .dataCorrupted(let context) = decodingError {
-						
-						if let underlyingError = context.underlyingError as NSError? {
-							
-                            if let debugDesc = underlyingError.userInfo["NSDebugDescription"] {
-                                print(debugDesc)
-                                completion(.failure(NBFetchServiceError.parsingError(debugDesc)))
-                            } else {
-                                print(decodingError)
-                                completion(.failure(NBFetchServiceError.parsingError(decodingError)))
-                            }
-						}
-					}
-					
-				} catch {
-                    print(error)
-					completion(.failure(NBFetchServiceError.parsingError(error)))
-				}
-			}
-			
-			task.resume()
-		}
-	}
+        from url: URL,
+        completion: @escaping (Result<T, Error>) -> Void
+    ) {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 45
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error {
+                completion(.failure(NBFetchServiceError.networkError(error)))
+                return
+            }
+            if let response = response as? HTTPURLResponse,
+               !(200..<300).contains(response.statusCode) {
+                completion(.failure(NBFetchServiceError.networkError(
+                    NSError(domain: "HTTP", code: response.statusCode,
+                            userInfo: [NSLocalizedDescriptionKey: "HTTP \(response.statusCode)"])
+                )))
+                return
+            }
+            guard let data, !data.isEmpty else {
+                completion(.failure(NBFetchServiceError.noData))
+                return
+            }
+            do {
+                completion(.success(try JSONDecoder().decode(T.self, from: data)))
+            } catch {
+                // Always resume callers' continuations, including dataCorrupted errors
+                // without an underlying NSError (the old code could wait forever).
+                completion(.failure(NBFetchServiceError.parsingError(error)))
+            }
+        }.resume()
+    }
+
 }

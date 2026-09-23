@@ -13,6 +13,20 @@ import SwiftUI
 // we're going to use a defensive approach and try to parse many repos.
 
 // MARK: - Repository
+// A single malformed entry should not make every other valid app in a large
+// community source disappear. Each decoder is advanced exactly once per item.
+private struct ShrubLossyArray<Element: Decodable>: Decodable {
+    let values: [Element]
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var result: [Element] = []
+        while !container.isAtEnd {
+            let elementDecoder = try container.superDecoder()
+            if let element = try? Element(from: elementDecoder) { result.append(element) }
+        }
+        values = result
+    }
+}
 
 public struct ASRepository: Sendable, Decodable, Hashable, Identifiable {
     // Core data
@@ -49,17 +63,17 @@ public struct ASRepository: Sendable, Decodable, Hashable, Identifiable {
             String.self,
             forKey: .description
         )
-        self.website = try container.decodeIfPresent(URL.self, forKey: .website)
-        self.iconURL = try container.decodeIfPresent(
+        self.website = try? container.decodeIfPresent(URL.self, forKey: .website)
+        self.iconURL = try? container.decodeIfPresent(
             URL.self,
             forKey: .iconURL
         )
-        self.headerURL = try container.decodeIfPresent(
+        self.headerURL = try? container.decodeIfPresent(
             URL.self,
             forKey: .headerURL
         )
         self.tintColor =
-            try container.decodeIfPresent(Color.self, forKey: .tintColor)
+            try? container.decodeIfPresent(Color.self, forKey: .tintColor)
 
         let patreonString = try container.decodeIfPresent(String.self, forKey: .patreonURL)
         
@@ -79,7 +93,7 @@ public struct ASRepository: Sendable, Decodable, Hashable, Identifiable {
             forKey: .userInfo
         )
 
-        let decodedApps = try container.decodeIfPresent([App].self, forKey: .apps)
+        let decodedApps = try container.decodeIfPresent(ShrubLossyArray<App>.self, forKey: .apps)?.values
         guard
             let apps = decodedApps,
             !apps.isEmpty
@@ -187,24 +201,39 @@ extension ASRepository {
             public var iPhone: [URL]?
             public var iPad: [URL]?
 
-            public init(from decoder: any Decoder) throws {
-                // theres a bunch of ways this shit can be formatted
-                // 1. an array of urls (strings)
-                // 2. an array of dictionaries that contain url, width, height.
-                // 3. a mix of 1 and 2, having urls or dictionaries
-                // 4. a dictionary with properties for iphone and ipad, which are arrays of above types
-
-                #warning("implement screenshots decoding")
-
-                self.iPad = []
-                self.iPhone = []
+            private struct ScreenshotURL: Decodable {
+                let value: URL
+                private enum CodingKeys: String, CodingKey { case url }
+                init(from decoder: Decoder) throws {
+                    if let url = try? decoder.singleValueContainer().decode(URL.self) {
+                        value = url
+                        return
+                    }
+                    let keyed = try decoder.container(keyedBy: CodingKeys.self)
+                    value = try keyed.decode(URL.self, forKey: .url)
+                }
             }
 
-            public enum CodingKeys: String, CodingKey {
+            private enum CodingKeys: String, CodingKey {
                 case iPhone = "iphone"
                 case iPad = "ipad"
-                case url
             }
+
+            public init(from decoder: any Decoder) throws {
+                if let items = try? decoder.singleValueContainer().decode([ScreenshotURL].self) {
+                    iPhone = items.map(\.value)
+                    iPad = []
+                    return
+                }
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                iPhone = (try? container.decodeIfPresent([ScreenshotURL].self, forKey: .iPhone))?.map(\.value)
+                iPad = (try? container.decodeIfPresent([ScreenshotURL].self, forKey: .iPad))?.map(\.value)
+            }
+        }
+
+        public var currentScreenshotURLs: [URL] {
+            if let direct = screenshotURLs, !direct.isEmpty { return direct }
+            return (screenshots?.iPhone ?? []) + (screenshots?.iPad ?? [])
         }
 
         public init(from decoder: any Decoder) throws {
@@ -278,13 +307,13 @@ extension ASRepository {
                 forKey: .appPermissions
             )
 
-            self.screenshots = try container.decodeIfPresent(
+            self.screenshots = try? container.decodeIfPresent(
                 Screenshots.self,
                 forKey: .screenshots
             )
 
             self.screenshotURLs =
-                try container.decodeIfPresent([URL].self, forKey: .screenshotURLs)
+                try? container.decodeIfPresent([URL].self, forKey: .screenshotURLs)
             
             if
                 let marketplaceID = try container.decodeIfPresent(String.self, forKey: .marketplaceID),

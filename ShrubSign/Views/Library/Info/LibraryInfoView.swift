@@ -8,10 +8,16 @@
 import SwiftUI
 import NimbleViews
 import Zsign
+import UIKit
 
 // MARK: - View
 struct LibraryInfoView: View {
-	var app: AppInfoPresentable
+    var app: AppInfoPresentable
+    @State private var extractedSize: Int64?
+
+    private var originalURL: URL? {
+        (app as? Imported)?.source ?? (app as? Signed)?.source
+    }
 	
 	// MARK: Body
     var body: some View {
@@ -22,20 +28,52 @@ struct LibraryInfoView: View {
 						.frame(maxWidth: .infinity, alignment: .center)
 				}
 				
-				_infoSection(for: app)
+                _infoSection(for: app)
+                Section("ShrubSign file details") {
+                    LabeledContent("Status", value: app.isSigned ? "Signed" : "Imported · not signed")
+                    if let extractedSize {
+                        LabeledContent("Extracted app size", value: ByteCountFormatter.string(fromByteCount: extractedSize, countStyle: .file))
+                    }
+                    if let originalURL {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Original source URL").font(.caption).foregroundStyle(.secondary)
+                            Text(originalURL.absoluteString).font(.footnote)
+                                .textSelection(.enabled).lineLimit(3)
+                            Link("Open original link", destination: originalURL)
+                        }
+                    }
+                }
 				_certSection(for: app)
 				_bundleSection(for: app)
 				_executableSection(for: app)
 				
 				Section {
 					Button(.localized("Open App Files"), systemImage: "folder") {
-						UIApplication.open(Storage.shared.getUuidDirectory(for: app)!.toSharedDocumentsURL()!)
+                        if let url = Storage.shared.getUuidDirectory(for: app)?.toSharedDocumentsURL() {
+                            UIApplication.open(url)
+                        }
 					}
 				}
 			}
-			.toolbar {
-				NBToolbarButton(role: .close)
-			}
+            .toolbar {
+                NBToolbarButton(role: .close)
+            }
+            .task {
+                guard let directory = Storage.shared.getAppDirectory(for: app) else { return }
+                extractedSize = await Task.detached(priority: .utility) {
+                    var total: Int64 = 0
+                    if let enumerator = FileManager.default.enumerator(
+                        at: directory, includingPropertiesForKeys: [.fileSizeKey], options: []
+                    ) {
+                        for case let file as URL in enumerator {
+                            if let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                                total += Int64(size)
+                            }
+                        }
+                    }
+                    return total
+                }.value
+            }
 		}
     }
 }
@@ -54,7 +92,10 @@ extension LibraryInfoView {
 			}
 			
 			if let id = app.identifier {
-				_infoCell(.localized("Identifier"), desc: id)
+                LabeledContent(.localized("Identifier")) {
+                    Text(id).font(.footnote).textSelection(.enabled)
+                        .lineLimit(3).multilineTextAlignment(.trailing)
+                }
 			}
 			
 			if let date = app.date {

@@ -6,17 +6,16 @@
 
 **ShrubSign** is ShrubHub's fork of [Ksign](https://github.com/nyasami/Ksign), an iOS app for signing and managing IPA files on supported devices.
 
-## ShrubSign 2 source updates
+## ShrubSign 2.1 source update
 
-- New native **Home** tab with the ShrubHub icon, live app/repository/certificate totals, direct file/URL import, repository shortcuts and expiration reminders and certificate search.
-- Existing native app search, repository browser, download/import flows, certificates and file manager are available from the dashboard and tabs.
-- **Sequential batch signing** from Library selection: visible progress and per-app success or failure; one failed app does not cancel remaining apps.
-- GitHub beta release checker in Home and Settings, with an accurate build-SHA comparison when release metadata permits it.
-- Built-in ShrubLibrary website discovery link to find more repositories; add compatible repository JSON URLs through the native Add Source flow.
-- Optional Discord notifications do not fail the GitHub Actions workflow when `DISCORD_WEBHOOK` is unset.
-- Upstream URL-scheme compatibility, licenses and project history retained.
+- **Native ShrubLibrary catalog**: reads `https://shrublibrary.pages.dev/repos.txt` only when the catalog is opened, validates and fetches independent repositories with a three-request limit, stores local source caches, reports individual failures, and supports searching while sources load. Repository attribution and duplicate app listings remain separate.
+- **Custom repositories**: the existing custom repository manager and parser are retained; imported sources also appear in the unified catalog without loading an identical directory URL twice.
+- **App details and downloads**: open each app's actual repository metadata, screenshots when provided, version history, and IPA download; the existing import/signing engine is preserved. Download screens now show validation failures and retry controls.
+- **Signing presets**: save, rename, delete, set as default, and apply reusable options from individual or batch signing. Presets reference certificate IDs, never private keys/passwords, and do not copy app-specific names or bundle IDs.
+- **Certificate & IPA details**: searchable/filterable/sortable identities, preferred identity ID persistence, expiration and revocation wording, source links, and extracted app size in the native info screen.
+- **Polish and reliability**: improved screenshot decoding, repository fetch completion, zero/unknown-size progress wording, safer download filenames, ZIP header/HTTP validation, improved mobile layouts, and more useful GitHub build-error logs.
 
-**Build and device testing:** This is the source release. Xcode compilation must be checked with GitHub Actions and signing/import/install behavior on a compatible iOS device. See [SHRUBSIGN_2_CHANGELOG.md](SHRUBSIGN_2_CHANGELOG.md) for exact scope and limitations.
+This is **source code**, not a precompiled or device-verified IPA. Build with GitHub Actions/Xcode, then test on your iPad. Third-party repository listings and IPAs are not verified for safety merely by appearing in the catalog. See [SHRUBSIGN_2_1_NOTES.md](SHRUBSIGN_2_1_NOTES.md) for testing steps and known limits.
 
 ## Building
 

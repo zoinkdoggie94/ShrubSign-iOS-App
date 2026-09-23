@@ -122,6 +122,11 @@ struct ShrubHomeView: View {
                 actionRow("Download IPA from URL", description: "Import a direct IPA link through the existing downloader", icon: "link")
             }
             NavigationLink {
+                ShrubCatalogView()
+            } label: {
+                actionRow("ShrubLibrary Catalog", description: "Search apps across ShrubLibrary and your custom repositories", icon: "books.vertical.fill")
+            }
+            NavigationLink {
                 SourceAppsView(object: Array(repositories), viewModel: sourcesModel)
             } label: {
                 actionRow("Browse apps", description: "Search your imported repositories and download IPAs", icon: "magnifyingglass")

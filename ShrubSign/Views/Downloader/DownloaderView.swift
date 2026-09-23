@@ -50,6 +50,32 @@ struct DownloaderView: View {
                     }
                 }
                 
+                if !downloadManager.failedItems.isEmpty {
+                    Section("Failed downloads · \(downloadManager.failedItems.count)") {
+                        ForEach(downloadManager.failedItems) { failure in
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(failure.title).font(.headline).lineLimit(2)
+                                Text(failure.message).font(.caption).foregroundStyle(.secondary)
+                                Button("Retry", systemImage: "arrow.clockwise") { downloadManager.retry(failure) }
+                            }
+                        }
+                    }
+                }
+                if !libraryManager.failures.isEmpty {
+                    Section("Failed imports · \(libraryManager.failures.count)") {
+                        ForEach(libraryManager.failures) { failure in
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(failure.url.lastPathComponent.isEmpty ? failure.url.host ?? "Download" : failure.url.lastPathComponent)
+                                    .font(.headline).lineLimit(2)
+                                Text(failure.message).font(.caption).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button("Retry download", systemImage: "arrow.clockwise") {
+                                    libraryManager.retry(failure)
+                                }
+                            }
+                        }
+                    }
+                }
                 NBSection(.localized("Downloaded"), secondary: filteredDownloadItems.count.description) {
                     ForEach(filteredDownloadItems) { item in
                         DownloadItemRow(
@@ -64,7 +90,7 @@ struct DownloaderView: View {
             }
             .listStyle(.plain)
             .overlay {
-                if downloadManager.finishedItems.isEmpty && downloadManager.activeItems.isEmpty && libraryManager.downloads.isEmpty {
+                if downloadManager.finishedItems.isEmpty && downloadManager.activeItems.isEmpty && libraryManager.downloads.isEmpty && libraryManager.failures.isEmpty && downloadManager.failedItems.isEmpty {
                     if #available(iOS 17, *) {
                         ContentUnavailableView {
                             Label(.localized("No downloaded IPAs"), systemImage: "square.and.arrow.down.fill")
@@ -213,8 +239,8 @@ Enter the URL of the website containing the IPA file (Direct install/ITMS Servic
     
     private func importIpaToLibrary(_ file: DownloadItem) {
         let id = "FeatherManualDownload_\(UUID().uuidString)"
-        let download = self.libraryManager.startArchive(from: file.url, id: id)
-        libraryManager.handlePachageFile(url: file.url, dl: download) { err in
+        let download = self.libraryManager.startArchive(from: file.localPath, id: id)
+        libraryManager.handlePachageFile(url: file.localPath, dl: download) { err in
             DispatchQueue.main.async {
                 if (err != nil) {
                     UIAlertController.showAlertWithOk(

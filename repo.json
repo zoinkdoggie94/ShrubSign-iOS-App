@@ -2,7 +2,7 @@
   "name": "ShrubSign Repository",
   "identifier": "com.shrubhub.shrubsign-repo",
   "subtitle": "Official source for ShrubSign",
-  "description": "ShrubSign is a Ksign-based iOS signer with a native dashboard, IPA import, batch signing, certificate management and repository browsing.",
+  "description": "ShrubSign is an iOS signer with native ShrubLibrary search, independent repository browsing, signing presets, certificate tools, IPA management and batch signing.",
   "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
   "website": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App",
   "tintColor": "72E894",
@@ -12,23 +12,23 @@
       "bundleIdentifier": "com.shrubhub.shrubsign",
       "developerName": "ShrubHub",
       "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
-      "localizedDescription": "ShrubSign 2: Native Home, multi-IPA import, sequential batch signing with per-app results, release checker, repositories and certificate tools.",
+      "localizedDescription": "ShrubSign 2.1: Unified ShrubLibrary catalog, per-repository app results, signing presets, certificate dashboard, richer IPA details and improved downloads.",
       "subtitle": "iOS signing by ShrubHub",
       "tintColor": "72E894",
       "category": "utilities",
       "versions": [
         {
           "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/beta/ShrubSign.ipa",
-          "version": "2.0.0",
-          "buildVersion": "2",
-          "date": "2026-09-23T12:18:00-07:00",
-          "localizedDescription": "Native ShrubSign dashboard, quick multi-IPA import, sequential batch signing with per-app results, GitHub beta release checker, and safer certificate status wording.",
+          "version": "2.1.0",
+          "buildVersion": "3",
+          "date": "2026-09-23T20:55:47Z",
+          "localizedDescription": "Native ShrubLibrary catalog with per-source app identity and caching, import-compatible app details, reusable signing presets, certificate filters, IPA details and download error/retry UI.",
           "minOSVersion": "16.0"
         }
       ],
       "appPermissions": {},
-      "version": "2.0.0",
-      "versionDate": "2026-09-23T12:18:00-07:00",
+      "version": "2.1.0",
+      "versionDate": "2026-09-23T20:55:47Z",
       "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/beta/ShrubSign.ipa"
     }
   ]

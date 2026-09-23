@@ -58,10 +58,17 @@ class Download: Identifiable, @unchecked Sendable, ObservableObject {
     }
 }
 
+struct ShrubDownloadFailure: Identifiable {
+    let id = UUID()
+    let url: URL
+    let message: String
+}
+
 class DownloadManager: NSObject, ObservableObject {
 	static let shared = DownloadManager()
 	
     @Published var downloads: [Download] = []
+    @Published private(set) var failures: [ShrubDownloadFailure] = []
 	
 	var manualDownloads: [Download] {
 		downloads.filter { isManualDownload($0.id) }
@@ -82,9 +89,23 @@ class DownloadManager: NSObject, ObservableObject {
     override init() {
         super.init()
         let configuration = URLSessionConfiguration.default
-        _session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        _session = URLSession(configuration: configuration, delegate: self, delegateQueue: OperationQueue.main)
     }
     
+    func retry(_ failure: ShrubDownloadFailure) {
+        failures.removeAll { $0.id == failure.id }
+        _ = startDownload(from: failure.url, id: "FeatherManualDownload_\(UUID().uuidString)")
+    }
+
+    private func fail(_ download: Download, message: String) {
+        if let index = getDownloadIndex(by: download.id) { downloads.remove(at: index) }
+        failures.append(ShrubDownloadFailure(url: download.url, message: message))
+        _updateBackgroundAudioState()
+        if #available(iOS 26.0, *) {
+            BackgroundTaskManager.shared.stopTask(for: download.id, success: false)
+        }
+    }
+
     func startDownload(
 		from url: URL,
 		id: String = UUID().uuidString
@@ -212,33 +233,47 @@ extension DownloadManager: URLSessionDownloadDelegate {
 		}
 	}
 	
-	func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-		guard let download = getDownloadTask(by: downloadTask) else { return }
-		
-		var downloadDir: URL
-		if !OptionsManager.shared.options.saveAppStoreDownloadsToDownloadsFolder {
-			let tempDirectory = FileManager.default.temporaryDirectory
-			downloadDir = tempDirectory.appendingPathComponent("FeatherDownloads", isDirectory: true)
-		} else {
-			downloadDir = URL.documentsDirectory.appendingPathComponent("Downloads")
-		}
-		
-		do {
-			try FileManager.default.createDirectoryIfNeeded(at: downloadDir)
-			let suggestedFileName = downloadTask.response?.suggestedFilename ?? download.fileName
-			let destinationURL = downloadDir.appendingPathComponent(suggestedFileName)
-			try FileManager.default.removeFileIfNeeded(at: destinationURL)
-			try FileManager.default.moveItem(at: location, to: destinationURL)
-			self.handlePachageFile(url: destinationURL, dl: download) { err in
-				if let error = err {
-					print("Error handling downloaded file: \(error.localizedDescription)")
-				}
-			}
-		} catch {
-			print("Error handling downloaded file: \(error.localizedDescription)")
-		}
-	}
-    
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard let download = getDownloadTask(by: downloadTask) else { return }
+        if let response = downloadTask.response as? HTTPURLResponse,
+           !(200..<300).contains(response.statusCode) {
+            fail(download, message: "HTTP \(response.statusCode): server did not return an IPA")
+            return
+        }
+        // A valid IPA is a ZIP container. Reject HTML/JSON error pages before extraction.
+        let header = (try? FileHandle(forReadingFrom: location)).flatMap { handle -> Data? in
+            defer { try? handle.close() }
+            return handle.readData(ofLength: 4)
+        }
+        guard let header, header.count == 4, header[0] == 0x50, header[1] == 0x4B,
+              (header[2] == 0x03 || header[2] == 0x05 || header[2] == 0x07) else {
+            fail(download, message: "The server returned a non-IPA file. Check the download URL.")
+            return
+        }
+        let downloadDir: URL = OptionsManager.shared.options.saveAppStoreDownloadsToDownloadsFolder
+            ? URL.documentsDirectory.appendingPathComponent("Downloads")
+            : FileManager.default.temporaryDirectory.appendingPathComponent("FeatherDownloads", isDirectory: true)
+        do {
+            try FileManager.default.createDirectoryIfNeeded(at: downloadDir)
+            let suggested = downloadTask.response?.suggestedFilename ?? download.fileName
+            let safeName = URL(fileURLWithPath: suggested).lastPathComponent
+            let base = safeName.isEmpty ? "download" : safeName
+            let name = base.lowercased().hasSuffix(".ipa") ? base : base + ".ipa"
+            var destination = downloadDir.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                destination = downloadDir.appendingPathComponent(
+                    "\((name as NSString).deletingPathExtension)-\(UUID().uuidString.prefix(8)).ipa"
+                )
+            }
+            try FileManager.default.moveItem(at: location, to: destination)
+            handlePachageFile(url: destination, dl: download) { error in
+                if let error { self.fail(download, message: "IPA import failed: \(error.localizedDescription)") }
+            }
+        } catch {
+            fail(download, message: "Could not save IPA: \(error.localizedDescription)")
+        }
+    }
+
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         guard let download = getDownloadTask(by: downloadTask) else { return }
         
@@ -263,11 +298,8 @@ extension DownloadManager: URLSessionDownloadDelegate {
 			return
 		}
 		
-		DispatchQueue.main.async {
-			if let index = self.getDownloadIndex(by: download.id) {
-				self.downloads.remove(at: index)
-			}
-		}
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        fail(download, message: error.localizedDescription)
     }
     
     

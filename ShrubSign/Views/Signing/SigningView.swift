@@ -15,6 +15,7 @@ struct SigningView: View {
 	@Namespace var _namespace
 
 	@StateObject private var _optionsManager = OptionsManager.shared
+    @StateObject private var presetStore = ShrubSigningPresets.shared
 	
 	@State private var _temporaryOptions: Options = OptionsManager.shared.options
 	@State private var _temporaryCertificate: Int
@@ -126,15 +127,31 @@ struct SigningView: View {
 			}
 			.animation(.smooth, value: _isSigning)
 		}
-		.onAppear {
-			// ppq protection
+        .onAppear {
+            let savedIdentity = UserDefaults.standard.string(forKey: "ShrubSign.preferredCertificateUUID") ?? ""
+            if !savedIdentity.isEmpty,
+               let index = certificates.firstIndex(where: { $0.uuid == savedIdentity }) {
+                _temporaryCertificate = index
+            }
+            if let preset = presetStore.preferred {
+                if let uuid = preset.certificateUUID,
+                   let index = certificates.firstIndex(where: { $0.uuid == uuid }),
+                   certificates[index].expiration.map({ $0 > Date() }) ?? false {
+                    _temporaryCertificate = index
+                    _temporaryOptions = preset.options
+                } else if preset.certificateUUID == nil &&
+                            (preset.options.doAdhocSigning || preset.options.onlyModify) {
+                    _temporaryOptions = preset.options
+                }
+            }
+            // ppq protection
 			if
-				_optionsManager.options.ppqProtection,
+				_temporaryOptions.ppqProtection,
 				let identifier = app.identifier,
 				let cert = _selectedCert(),
 				cert.ppQCheck
 			{
-				_temporaryOptions.appIdentifier = "\(identifier).\(_optionsManager.options.ppqString)"
+				_temporaryOptions.appIdentifier = "\(identifier).\(_temporaryOptions.ppqString)"
 			}
 			
 			if
@@ -151,7 +168,7 @@ struct SigningView: View {
 				_temporaryOptions.appName = newName
 			}
 			
-			if _optionsManager.options.prefix != nil || _optionsManager.options.suffix != nil {
+			if _temporaryOptions.prefix != nil || _temporaryOptions.suffix != nil {
 				var name = app.name ?? ""
 				
 				if
@@ -160,11 +177,11 @@ struct SigningView: View {
 					name = dictName
 				}
 				
-				if let prefix = _optionsManager.options.prefix {
+				if let prefix = _temporaryOptions.prefix {
 					name = prefix + name
 				}
 				
-				if let suffix = _optionsManager.options.suffix {
+				if let suffix = _temporaryOptions.suffix {
 					name = name + suffix
 				}
 				
@@ -219,8 +236,13 @@ extension SigningView {
 	
 	@ViewBuilder
 	private func _cert() -> some View {
-		NBSection(.localized("Signing")) {
-			if let cert = _selectedCert() {
+        NBSection(.localized("Signing")) {
+            NavigationLink {
+                SigningPresetsView(options: $_temporaryOptions, certificateIndex: $_temporaryCertificate)
+            } label: {
+                Label("Signing presets", systemImage: "slider.horizontal.3")
+            }
+            if let cert = _selectedCert() {
 				NavigationLink {
 					CertificatesView(selectedCert: $_temporaryCertificate)
 				} label: {
@@ -297,7 +319,13 @@ extension SigningView {
 			return
 		}
 
-		let generator = UIImpactFeedbackGenerator(style: .light)
+        if !_temporaryOptions.doAdhocSigning && !_temporaryOptions.onlyModify,
+           let expiry = _selectedCert()?.expiration, expiry <= Date() {
+            UIAlertController.showAlertWithOk(title: "Certificate expired",
+                message: "Select a non-expired signing identity before signing.", isCancel: true)
+            return
+        }
+        let generator = UIImpactFeedbackGenerator(style: .light)
 		generator.impactOccurred()
 		_isLogsPresenting = _optionsManager.options.signingLogs
 		_isSigning = true

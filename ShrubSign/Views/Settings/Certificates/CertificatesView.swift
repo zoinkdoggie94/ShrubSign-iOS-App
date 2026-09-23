@@ -12,8 +12,11 @@ import UIKit
 // MARK: - View
 struct CertificatesView: View {
 	@AppStorage("feather.selectedCert") private var _storedSelectedCert: Int = 0
+    @AppStorage("ShrubSign.preferredCertificateUUID") private var preferredUUID = ""
 	
     @State private var certificateSearch = ""
+    @State private var certificateFilter = 0
+    @State private var certificateOrder = 0
 	@State private var _isAddingPresenting = false
 	@State private var _isSelectedInfoPresenting: CertificatePair?
 
@@ -25,12 +28,25 @@ struct CertificatesView: View {
 	) private var certificates: FetchedResults<CertificatePair>
 	
     private var filteredCertificates: [(offset: Int, element: CertificatePair)] {
-        let all = Array(certificates.enumerated())
-        guard !certificateSearch.isEmpty else { return all }
-        return all.filter { item in
-            (item.element.nickname ?? "").localizedCaseInsensitiveContains(certificateSearch)
-            || (Storage.shared.getProvisionFileDecoded(for: item.element)?.Name ?? "").localizedCaseInsensitiveContains(certificateSearch)
+        var all = Array(certificates.enumerated()).filter { item in
+            (certificateSearch.isEmpty ||
+             (item.element.nickname ?? "").localizedCaseInsensitiveContains(certificateSearch) ||
+             (Storage.shared.getProvisionFileDecoded(for: item.element)?.Name ?? "").localizedCaseInsensitiveContains(certificateSearch))
+            && (certificateFilter == 0 ||
+                (certificateFilter == 1 && (item.element.expiration ?? .distantPast) > Date() && !item.element.revoked) ||
+                (certificateFilter == 2 && (item.element.expiration ?? .distantPast) <= Date().addingTimeInterval(30 * 86400)) ||
+                (certificateFilter == 3 && item.element.revoked))
         }
+        if certificateOrder == 1 {
+            all.sort { ($0.element.nickname ?? "").localizedStandardCompare($1.element.nickname ?? "") == .orderedAscending }
+        } else if certificateOrder == 2 {
+            all.sort { ($0.element.expiration ?? .distantFuture) < ($1.element.expiration ?? .distantFuture) }
+        }
+        return all
+    }
+
+    private var expiringCount: Int {
+        certificates.filter { ($0.expiration ?? .distantFuture) <= Date().addingTimeInterval(30 * 86400) }.count
     }
 
 	//
@@ -50,11 +66,44 @@ struct CertificatesView: View {
 				_cellButton(for: cert, at: index)
 			}
 		}
+        .safeAreaInset(edge: .top) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Label("\(certificates.count) identities", systemImage: "checkmark.shield")
+                    Spacer()
+                    if expiringCount > 0 {
+                        Text("\(expiringCount) expiring / expired").foregroundStyle(.orange)
+                    }
+                }
+                .font(.caption)
+                HStack {
+                    Picker("Status", selection: $certificateFilter) {
+                        Text("All").tag(0)
+                        Text("Not expired").tag(1)
+                        Text("Expiring").tag(2)
+                        Text("Flagged").tag(3)
+                    }
+                    .pickerStyle(.menu)
+                    Picker("Sort", selection: $certificateOrder) {
+                        Text("Recently added").tag(0)
+                        Text("Name").tag(1)
+                        Text("Expiration").tag(2)
+                    }
+                    .pickerStyle(.menu)
+                }
+                Text("Expiration and a saved revocation flag do not establish live Apple certificate status.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(.regularMaterial)
+        }
+        .onAppear(perform: restorePreferredCertificate)
+        .onChange(of: certificates.map { $0.uuid ?? "" }) { _ in restorePreferredCertificate() }
         .searchable(text: $certificateSearch, prompt: "Search certificates")
 		.navigationTitle(.localized("Certificates"))
 		.navigationBarTitleDisplayMode(.inline)
         .overlay {
-            if certificates.isEmpty || (!certificateSearch.isEmpty && filteredCertificates.isEmpty) {
+            if certificates.isEmpty || filteredCertificates.isEmpty {
                 if #available(iOS 17, *) {
                     ContentUnavailableView {
                         Label(certificates.isEmpty ? "No Certificates" : "No matching certificates", systemImage: "questionmark.folder.fill")
@@ -105,6 +154,12 @@ struct CertificatesView: View {
 }
 
 extension CertificatesView {
+    private func restorePreferredCertificate() {
+        guard !preferredUUID.isEmpty,
+              let index = certificates.firstIndex(where: { $0.uuid == preferredUUID }) else { return }
+        if _bindingSelectedCert == nil && _storedSelectedCert != index { _storedSelectedCert = index }
+    }
+
 	@ViewBuilder
 	private func _cellButton(for cert: CertificatePair, at index: Int) -> some View {
 		Button {

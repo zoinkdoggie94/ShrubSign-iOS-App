@@ -18,7 +18,7 @@ final class SourcesViewModel: ObservableObject {
 	
 	private let _dataService = NBFetchService()
 	
-	var isFinished = true
+    @Published var isFinished = true
 	@Published var sources: [AltSource: ASRepository] = [:]
 	
 	func fetchSources(_ sources: FetchedResults<AltSource>, refresh: Bool = false, batchSize: Int = 4) async {
@@ -26,15 +26,19 @@ final class SourcesViewModel: ObservableObject {
 		
 		// check if sources to be fetched are the same as before, if yes, return
 		// also skip check if refresh is true
-		if !refresh, sources.allSatisfy({ self.sources[$0] != nil }) { return }
+        if !refresh, sources.count == self.sources.count,
+           sources.allSatisfy({ self.sources[$0] != nil }) { return }
 		
 		// isfinished is used to prevent multiple fetches at the same time
 		isFinished = false
 		defer { isFinished = true }
 		
-		await MainActor.run {
-			self.sources = [:]
-		}
+        // Keep previously loaded sources visible during refresh; new results replace
+        // individual entries incrementally instead of blanking the entire library.
+        let allowedIDs = Set(sources.map { $0.objectID })
+        await MainActor.run {
+            self.sources = self.sources.filter { allowedIDs.contains($0.key.objectID) }
+        }
 		
 		let sourcesArray = Array(sources)
 		

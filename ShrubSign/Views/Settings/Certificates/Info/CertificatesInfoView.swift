@@ -57,7 +57,9 @@ extension CertificatesInfoView {
 			_info(.localized("Expires"), description: data.ExpirationDate.expirationInfo().formatted)
 				.foregroundStyle(data.ExpirationDate.expirationInfo().color)
             
-            _info(.localized("Revoked"), description: cert.revoked ? "Yes" : "No")
+            _info("Saved revocation flag", description: cert.revoked ? "Flagged" : "Not flagged")
+            Text("This flag is saved locally; it is not a live Apple certificate status check.")
+                .font(.caption).foregroundStyle(.secondary)
             
 			if let ppq = data.PPQCheck {
 				_info("PPQCheck", description: ppq ? "Yes" : "No")

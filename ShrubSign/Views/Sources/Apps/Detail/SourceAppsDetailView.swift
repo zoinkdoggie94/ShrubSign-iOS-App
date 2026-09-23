@@ -67,9 +67,9 @@ struct SourceAppsDetailView: View {
 				_infoPills(app: app)
 				Divider()
                 
-                if let screenshotURLs = app.screenshotURLs {
+                if !app.currentScreenshotURLs.isEmpty {
                     NBSection(.localized("Screenshots")) {
-                        _screenshots(screenshotURLs: screenshotURLs)
+                        _screenshots(screenshotURLs: app.currentScreenshotURLs)
                     }
                     
                     Divider()
@@ -202,9 +202,9 @@ struct SourceAppsDetailView: View {
 			}
 		}
 		.fullScreenCover(isPresented: $_isScreenshotPreviewPresented) {
-			if let screenshotURLs = app.screenshotURLs {
+			if !app.currentScreenshotURLs.isEmpty {
 				ScreenshotPreviewView(
-					screenshotURLs: screenshotURLs,
+					screenshotURLs: app.currentScreenshotURLs,
 					initialIndex: _selectedScreenshotIndex
 				)
 			}

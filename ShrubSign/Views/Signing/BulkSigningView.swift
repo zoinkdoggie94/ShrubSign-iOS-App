@@ -165,6 +165,12 @@ struct BulkSigningView: View {
 					}
 				}
 			}
+            .onAppear {
+                let identity = UserDefaults.standard.string(forKey: "ShrubSign.preferredCertificateUUID") ?? ""
+                if let index = certificates.firstIndex(where: { $0.uuid == identity }), !identity.isEmpty {
+                    _temporaryCertificate = index
+                }
+            }
             .interactiveDismissDisabled(_isSigning)
 			.animation(.smooth, value: _isSigning)
 		}
@@ -223,8 +229,24 @@ extension BulkSigningView {
 
 	@ViewBuilder
 	private func _cert() -> some View {
-		NBSection(.localized("Signing")) {
-			if let cert = _selectedCert() {
+        NBSection(.localized("Signing")) {
+            NavigationLink {
+                SigningPresetsView(options: Binding(
+                    get: { _configs.first?.options ?? _optionsManager.options },
+                    set: { newOptions in
+                        for i in _configs.indices {
+                            var copy = newOptions
+                            copy.appName = _configs[i].options.appName
+                            copy.appIdentifier = _configs[i].options.appIdentifier
+                            copy.appVersion = _configs[i].options.appVersion
+                            _configs[i].options = copy
+                        }
+                    }
+                ), certificateIndex: $_temporaryCertificate)
+            } label: {
+                Label("Apply signing preset to batch", systemImage: "slider.horizontal.3")
+            }
+            if let cert = _selectedCert() {
 				NavigationLink {
 					CertificatesView(selectedCert: $_temporaryCertificate)
 				} label: {
@@ -300,6 +322,12 @@ extension BulkSigningView {
             return
         }
 
+        if let expiry = certificate?.expiration, expiry <= Date(),
+           !_configs.allSatisfy({ $0.options.doAdhocSigning || $0.options.onlyModify }) {
+            UIAlertController.showAlertWithOk(title: "Certificate expired",
+                message: "Select a non-expired signing identity before starting this batch.", isCancel: true)
+            return
+        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         _completedCount = 0
         _results = []

@@ -26,7 +26,32 @@ jobs:
 
       - name: Build
         run: |
-          make
+          # Save a complete searchable log and print actionable compiler diagnostics
+          # even when xcodebuild's final lines contain only Error 65.
+          set +e
+          make > "$RUNNER_TEMP/shrubsign-build.log" 2>&1
+          result=$?
+          set -e
+          if [ "$result" -ne 0 ]; then
+            echo "::group::Compiler and build errors"
+            grep -nEi -C 3 '(^|/)[^ ]+\.swift:[0-9]+:[0-9]+: error:|error:|fatal error:|BUILD FAILED|\*\* BUILD FAILED \*\*' \
+              "$RUNNER_TEMP/shrubsign-build.log" | tail -n 180 || true
+            echo "::endgroup::"
+            echo "::group::Final build output"
+            tail -n 70 "$RUNNER_TEMP/shrubsign-build.log"
+            echo "::endgroup::"
+            exit "$result"
+          fi
+          tail -n 25 "$RUNNER_TEMP/shrubsign-build.log"
+
+      - name: Upload failed build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shrubsign-build-errors
+          path: ${{ runner.temp }}/shrubsign-build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Update Beta Release
         env:
@@ -37,7 +62,11 @@ jobs:
           echo "## Commit: \`$COMMIT_MSG\` (${{ github.sha }})" >> release_notes.md
           echo "### New in this build (Compared to $LATEST_OFFICIAL_TAG):" >> release_notes.md
             
-          CHANGES=$(git log --pretty=format:"* %s (%h)" ${LATEST_OFFICIAL_TAG}..HEAD)
+          if [ -n "$LATEST_OFFICIAL_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"* %s (%h)" "${LATEST_OFFICIAL_TAG}..HEAD")
+          else
+            CHANGES=$(git log -n 20 --pretty=format:"* %s (%h)")
+          fi
             
           if [ -z "$CHANGES" ]; then
             echo "* No code changes since $LATEST_OFFICIAL_TAG" >> release_notes.md

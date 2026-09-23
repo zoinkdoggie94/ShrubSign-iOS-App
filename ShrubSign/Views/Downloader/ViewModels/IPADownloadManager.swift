@@ -8,8 +8,16 @@
 import SwiftUI
 import WebKit
 
+struct IPADownloadFailure: Identifiable {
+    let id = UUID()
+    let url: URL
+    let title: String
+    let message: String
+}
+
 class IPADownloadManager: NSObject, ObservableObject {
     @Published var downloadItems: [DownloadItem] = []
+    @Published private(set) var failedItems: [IPADownloadFailure] = []
     
     var activeItems: [DownloadItem] {
         downloadItems.filter { !$0.isFinished }
@@ -33,7 +41,7 @@ class IPADownloadManager: NSObject, ObservableObject {
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300 // 5 minutes
         config.waitsForConnectivity = true
-        urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        urlSession = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue.main)
     }
 
     func isIPAFile(_ url: URL) -> Bool {
@@ -83,14 +91,32 @@ class IPADownloadManager: NSObject, ObservableObject {
         }
     }
     
+    func retry(_ failure: IPADownloadFailure) {
+        failedItems.removeAll { $0.id == failure.id }
+        startDownload(url: failure.url, filename: failure.title)
+    }
+
+    private func fail(_ item: DownloadItem, reason: String) {
+        downloadItems.removeAll { $0.id == item.id }
+        failedItems.append(IPADownloadFailure(url: item.url, title: item.title, message: reason))
+    }
+
     func startDownload(url: URL, filename: String) {
+        guard !downloadItems.contains(where: { !$0.isFinished && $0.url == url }) else { return }
         let fileManager = FileManager.default
         let downloadDirectory = URL.documentsDirectory.appendingPathComponent("Downloads")
         try? fileManager.createDirectoryIfNeeded(at: downloadDirectory)
         
-        let destinationURL = downloadDirectory.appendingPathComponent(filename)
+        let sanitized = URL(fileURLWithPath: filename).lastPathComponent
+        let actualName = sanitized.isEmpty ? "download.ipa" : sanitized
+        var destinationURL = downloadDirectory.appendingPathComponent(actualName)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            destinationURL = downloadDirectory.appendingPathComponent(
+                "\((actualName as NSString).deletingPathExtension)-\(UUID().uuidString.prefix(8)).ipa"
+            )
+        }
         let item = DownloadItem(
-            title: filename,
+            title: destinationURL.lastPathComponent,
             url: url,
             localPath: destinationURL,
             isFinished: false,
@@ -184,69 +210,63 @@ class IPADownloadManager: NSObject, ObservableObject {
 
 extension IPADownloadManager: URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        let fileManager = FileManager.default
-        guard let downloadItemId = activeDownloads[downloadTask.taskIdentifier],
-              let index = downloadItems.firstIndex(where: { $0.id.uuidString == downloadItemId }) else { return }
-        
-        let item = downloadItems[index]
-        
+        guard let itemID = activeDownloads[downloadTask.taskIdentifier],
+              let item = downloadItems.first(where: { $0.id.uuidString == itemID }) else { return }
+        if let response = downloadTask.response as? HTTPURLResponse,
+           !(200..<300).contains(response.statusCode) {
+            fail(item, reason: "HTTP \(response.statusCode) from the IPA server")
+            activeDownloads.removeValue(forKey: downloadTask.taskIdentifier)
+            return
+        }
+        let header = (try? FileHandle(forReadingFrom: location)).flatMap { handle -> Data? in
+            defer { try? handle.close() }
+            return handle.readData(ofLength: 4)
+        }
+        guard let header, header.count == 4, header[0] == 0x50, header[1] == 0x4B,
+              [UInt8(0x03), 0x05, 0x07].contains(header[2]) else {
+            fail(item, reason: "This link returned an HTML page or another non-IPA file.")
+            activeDownloads.removeValue(forKey: downloadTask.taskIdentifier)
+            return
+        }
         do {
-            if fileManager.fileExists(atPath: item.localPath.path) {
-                try fileManager.removeItem(at: item.localPath)
-            }
-            try fileManager.moveItem(at: location, to: item.localPath)
-            
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                
-                var updatedItem = item
-                updatedItem.isFinished = true
-                updatedItem.progress = 1.0
-                if let fileSize = try? FileManager.default.attributesOfItem(atPath: item.localPath.path)[.size] as? Int64 {
-                    updatedItem.totalBytes = fileSize
-                    updatedItem.bytesDownloaded = fileSize
-                }
-                
-                if index < self.downloadItems.count {
-                    self.downloadItems[index] = updatedItem
-                }
-                self.activeDownloads.removeValue(forKey: downloadTask.taskIdentifier)
+            try FileManager.default.moveItem(at: location, to: item.localPath)
+            if let index = downloadItems.firstIndex(where: { $0.id == item.id }) {
+                var completed = item
+                completed.isFinished = true
+                completed.progress = 1
+                let attributes = try FileManager.default.attributesOfItem(atPath: item.localPath.path)
+                let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+                completed.totalBytes = size
+                completed.bytesDownloaded = size
+                downloadItems[index] = completed
             }
         } catch {
-            print("Error saving downloaded file: \(error)")
-            DispatchQueue.main.async { [weak self] in
-                self?.downloadItems.remove(at: index)
-                self?.activeDownloads.removeValue(forKey: downloadTask.taskIdentifier)
-            }
+            fail(item, reason: "Could not save download: \(error.localizedDescription)")
         }
+        activeDownloads.removeValue(forKey: downloadTask.taskIdentifier)
     }
-    
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let downloadItemId = activeDownloads[downloadTask.taskIdentifier],
-              let index = downloadItems.firstIndex(where: { $0.id.uuidString == downloadItemId }) else { return }
-        
-        let progress = totalBytesExpectedToWrite > 0 ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) : 0
-        
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, index < self.downloadItems.count else { return }
-            var item = self.downloadItems[index]
-            item.progress = progress
-            item.bytesDownloaded = totalBytesWritten
-            item.totalBytes = totalBytesExpectedToWrite
-            self.downloadItems[index] = item
-        }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        guard let itemID = activeDownloads[downloadTask.taskIdentifier],
+              let index = downloadItems.firstIndex(where: { $0.id.uuidString == itemID }) else { return }
+        var item = downloadItems[index]
+        item.progress = totalBytesExpectedToWrite > 0
+            ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) : 0
+        item.bytesDownloaded = totalBytesWritten
+        item.totalBytes = totalBytesExpectedToWrite
+        downloadItems[index] = item
     }
-    
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error = error {
-            guard let downloadItemId = activeDownloads[task.taskIdentifier],
-                  let index = downloadItems.firstIndex(where: { $0.id.uuidString == downloadItemId }) else { return }
-            
-            DispatchQueue.main.async { [weak self] in
-                self?.downloadItems.remove(at: index)
-                self?.activeDownloads.removeValue(forKey: task.taskIdentifier)
-            }
+        guard let error, let itemID = activeDownloads.removeValue(forKey: task.taskIdentifier),
+              let item = downloadItems.first(where: { $0.id.uuidString == itemID }) else { return }
+        if (error as NSError).code == NSURLErrorCancelled {
+            downloadItems.removeAll { $0.id == item.id }
+        } else {
+            fail(item, reason: error.localizedDescription)
         }
-        activeDownloads.removeValue(forKey: task.taskIdentifier)
     }
+
 }
