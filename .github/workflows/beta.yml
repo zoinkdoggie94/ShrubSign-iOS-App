@@ -53,6 +53,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Validate IPA
+        run: |
+          set -euo pipefail
+          test -s packages/ShrubSign.ipa
+          unzip -tq packages/ShrubSign.ipa
+          zipinfo -1 packages/ShrubSign.ipa | grep -Fxq 'Payload/ShrubSign.app/Info.plist'
+          zipinfo -1 packages/ShrubSign.ipa | grep -Fxq 'Payload/ShrubSign.app/ShrubSign'
+          echo "ShrubSign IPA passed archive and bundle validation."
+
       - name: Update Beta Release
         env:
           GH_TOKEN: ${{ github.token }}

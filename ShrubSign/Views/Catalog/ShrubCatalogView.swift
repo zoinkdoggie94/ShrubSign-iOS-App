@@ -90,8 +90,13 @@ struct ShrubCatalogView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if !catalog.errors.isEmpty || catalog.directoryError != nil {
-                        Button("Source issues (\(catalog.errors.count))") { showingFailures = true }
+                        Button("Source status (\(catalog.errors.count) need attention)") { showingFailures = true }
                             .font(.subheadline)
+                    }
+                    if !catalog.cachedFallbacks.isEmpty {
+                        Label("Using cached data for \(catalog.cachedFallbacks.count) source(s)", systemImage: "clock.arrow.circlepath")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     if let updated = catalog.lastUpdated {
                         Text("Last complete refresh: \(updated.formatted(date: .abbreviated, time: .shortened))")
@@ -102,7 +107,7 @@ struct ShrubCatalogView: View {
                 }
                 .padding(.vertical, 5)
             }
-            if isSearching { ProgressView("Searching loaded apps...") }
+            if isSearching { ProgressView("Updating results...") }
             Section {
                 NavigationLink {
                     DownloaderView()
@@ -187,7 +192,7 @@ struct ShrubCatalogView: View {
                             Label(url.host ?? url.absoluteString, systemImage: "square.stack.3d.up")
                                 .lineLimit(2)
                             Spacer()
-                            Text(catalog.errors[url.absoluteString] == nil ? "Loading" : "Unavailable")
+                            Text(catalog.errors[url.absoluteString] == nil ? "Loading" : "Needs attention")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -245,11 +250,11 @@ struct ShrubCatalogView: View {
                 ForEach(catalog.errors.keys.sorted(), id: \.self) { key in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(key).font(.footnote).textSelection(.enabled)
-                        Text(catalog.errors[key] ?? "Source failed").font(.caption).foregroundStyle(.secondary)
+                        Text(catalog.errors[key] ?? "Could not load this source right now").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
-            .navigationTitle("Source status")
+            .navigationTitle("Repository status")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { showingFailures = false } }
             }

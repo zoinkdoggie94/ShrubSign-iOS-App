@@ -49,7 +49,15 @@ $(SCHEMES): deps
 	cp deps/* "$(STAGE)/Payload/$@.app/" || true
 
 	rm -rf "$(STAGE)/Payload/$@.app/_CodeSignature"
-	ln -sf "$(STAGE)/Payload" Payload
-	
+
+	# Package a real Payload directory. Some IPA tools reject archives created
+	# from a symlink named Payload even when unzip can read them.
+	rm -rf Payload
 	mkdir -p packages
-	zip -r9 "packages/ShrubSign.ipa" Payload
+	rm -f "packages/ShrubSign.ipa"
+	cd "$(STAGE)" && zip -qry -X "$(CURDIR)/packages/ShrubSign.ipa" Payload
+
+	# Refuse to publish an IPA that cannot be opened or lacks its required bundle files.
+	unzip -tq "packages/ShrubSign.ipa"
+	zipinfo -1 "packages/ShrubSign.ipa" | grep -Fxq "Payload/$@.app/Info.plist"
+	zipinfo -1 "packages/ShrubSign.ipa" | grep -Fxq "Payload/$@.app/$@"

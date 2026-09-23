@@ -80,9 +80,6 @@ struct ShrubHomeView: View {
             } message: {
                 Text(importError ?? "The selected IPA could not be imported.")
             }
-            .task(id: Array(repositories).map { $0.objectID }) {
-                await sourcesModel.fetchSources(repositories)
-            }
         }
     }
 
@@ -95,7 +92,7 @@ struct ShrubHomeView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             VStack(alignment: .leading, spacing: 4) {
                 Text("ShrubSign").font(.largeTitle.bold())
-                Text("Your apps, your certificates, your library.")
+                Text("Sign, manage, and discover apps — without the clutter.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -124,12 +121,12 @@ struct ShrubHomeView: View {
             NavigationLink {
                 ShrubCatalogView()
             } label: {
-                actionRow("ShrubLibrary Catalog", description: "Search apps across ShrubLibrary and your custom repositories", icon: "books.vertical.fill")
+                actionRow("ShrubLibrary Catalog", description: "On-demand search across ShrubLibrary and your custom repositories", icon: "books.vertical.fill")
             }
             NavigationLink {
                 SourceAppsView(object: Array(repositories), viewModel: sourcesModel)
             } label: {
-                actionRow("Browse apps", description: "Search your imported repositories and download IPAs", icon: "magnifyingglass")
+                actionRow("Browse repositories", description: "Open your saved sources and load them only when needed", icon: "magnifyingglass")
             }
             .disabled(repositories.isEmpty)
             NavigationLink {
@@ -214,7 +211,7 @@ struct ShrubHomeView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func actionRow(_ title: String, description: String, icon: String) -> some View {
@@ -231,7 +228,7 @@ struct ShrubHomeView: View {
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
         }
         .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 15))
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 15))
         .contentShape(Rectangle())
     }
 }

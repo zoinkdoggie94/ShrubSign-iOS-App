@@ -146,11 +146,14 @@ struct SourceAppsView: View {
             }
         }
         .onAppear {
-            if !hasLoadedOnce, viewModel.isFinished {
-                _load()
-                hasLoadedOnce = true
-            }
             _sortOption = SortOption(rawValue: _sortOptionRawValue) ?? .default
+        }
+        .task(id: object.map { $0.objectID.uriRepresentation().absoluteString }.joined(separator: "|")) {
+            // Load repositories only when this browser is actually opened. This keeps
+            // Home fast while still making direct navigation from Home reliable.
+            await viewModel.fetchSources(_allSources)
+            _load()
+            hasLoadedOnce = true
         }
         .onChange(of: viewModel.isFinished) { _ in
             _load()

@@ -190,12 +190,11 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
     }
     
     func invalidateCache() {
+        _cachedSortedApps.removeAll(keepingCapacity: true)
         _cachedSortedApps = _calculateSortedApps()
-        if let tableView = uiTableView {
-            UIView.transition(with: tableView, duration: 0.3, options: [.transitionCrossDissolve], animations: {
-                tableView.reloadData()
-            })
-        }
+        // Reload directly. Cross-dissolving the entire table on every search keystroke
+        // caused visible lag and could make the search field feel unstable on iPad.
+        uiTableView?.reloadData()
     }
     
     // MARK: TableView
