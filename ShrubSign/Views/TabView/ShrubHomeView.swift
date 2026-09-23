@@ -1,6 +1,7 @@
 // ShrubSign dashboard. All actions use the existing app services.
 import SwiftUI
 import CoreData
+import NimbleViews
 import UniformTypeIdentifiers
 
 struct ShrubHomeView: View {
@@ -29,104 +30,11 @@ struct ShrubHomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    HStack(spacing: 14) {
-                        Image("ShrubHubMark")
-                            .resizable().scaledToFit()
-                            .frame(width: 64, height: 64)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("ShrubSign").font(.largeTitle.bold())
-                            Text("Your apps, your certificates, your library.")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.top, 12)
-
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        countTile("Imported", count: importedApps.count, symbol: "square.and.arrow.down")
-                        countTile("Signed", count: signedApps.count, symbol: "checkmark.seal")
-                        countTile("Repositories", count: repositories.count, symbol: "square.stack.3d.up")
-                        countTile("Certificates", count: certificates.count, symbol: "signature")
-                    }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Get started").font(.title2.bold())
-                        Button { isImporting = true } label: {
-                            actionRow("Import IPAs", description: "Choose one or several files to add to your library", icon: "square.and.arrow.down.fill")
-                        }
-                        Button { isURLDownloadPresented = true } label: {
-                            actionRow("Download IPA from URL", description: "Import a direct IPA link through the existing downloader", icon: "link")
-                        }
-                        NavigationLink {
-                            SourceAppsView(object: Array(repositories), viewModel: sourcesModel)
-                        } label: {
-                            actionRow("Browse apps", description: "Search your imported repositories and download IPAs", icon: "magnifyingglass")
-                        }
-                        .disabled(repositories.isEmpty)
-                        NavigationLink {
-                            LibraryView()
-                        } label: {
-                            actionRow("Sign & manage apps", description: "Sign imported IPAs, or select several to batch sign", icon: "checkmark.shield.fill")
-                        }
-                        NavigationLink {
-                            CertificatesView()
-                        } label: {
-                            actionRow("Signing certificates", description: "Select, import, and inspect signing identities", icon: "person.crop.rectangle.stack")
-                        }
-                        NavigationLink {
-                            FilesView()
-                        } label: {
-                            actionRow("File manager", description: "Inspect and manage files stored in ShrubSign", icon: "folder.fill")
-                        }
-                        NavigationLink {
-                            SourcesView()
-                        } label: {
-                            actionRow("Manage repositories", description: "Refresh, add, browse, or remove your sources", icon: "square.stack.3d.up.fill")
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Repositories").font(.title2.bold())
-                            Spacer()
-                            Button("Add source", systemImage: "plus") { isAddingSource = true }
-                                .font(.subheadline)
-                        }
-                        if repositories.isEmpty {
-                            Text("Add an AltStore-compatible source to discover apps.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(Array(repositories.prefix(4))) { repository in
-                                NavigationLink {
-                                    SourceAppsView(object: [repository], viewModel: sourcesModel)
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "square.stack.3d.up.fill").foregroundStyle(.tint)
-                                        Text(repository.name ?? "Unnamed repository")
-                                            .lineLimit(1)
-                                        Spacer()
-                                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    .padding(13)
-                                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 13))
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                        Link(destination: URL(string: "https://shrublibrary.pages.dev")!) {
-                            actionRow("Explore ShrubLibrary", description: "Find more repository links on the ShrubLibrary website", icon: "globe")
-                        }.buttonStyle(.plain)
-                    }
-                    if expiringSoon > 0 {
-                        Label("\(expiringSoon) certificate(s) expired or expiring within 30 days. Check your certificates before signing.", systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote).foregroundStyle(.orange)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    Text("The certificate dates are read from your saved profiles. Expiration does not indicate Apple revocation status.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    dashboardHeader
+                    dashboardCounts
+                    quickActions
+                    repositoryPreview
+                    expirationNotice
                 }
                 .padding(.horizontal, 18)
                 .padding(.bottom, 32)
@@ -176,6 +84,118 @@ struct ShrubHomeView: View {
                 await sourcesModel.fetchSources(repositories)
             }
         }
+    }
+
+    private var dashboardHeader: some View {
+        HStack(spacing: 14) {
+            Image("ShrubHubMark")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("ShrubSign").font(.largeTitle.bold())
+                Text("Your apps, your certificates, your library.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 12)
+    }
+
+    private var dashboardCounts: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            countTile("Imported", count: importedApps.count, symbol: "square.and.arrow.down")
+            countTile("Signed", count: signedApps.count, symbol: "checkmark.seal")
+            countTile("Repositories", count: repositories.count, symbol: "square.stack.3d.up")
+            countTile("Certificates", count: certificates.count, symbol: "signature")
+        }
+    }
+
+    private var quickActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Get started").font(.title2.bold())
+            Button { isImporting = true } label: {
+                actionRow("Import IPAs", description: "Choose one or several files to add to your library", icon: "square.and.arrow.down.fill")
+            }
+            Button { isURLDownloadPresented = true } label: {
+                actionRow("Download IPA from URL", description: "Import a direct IPA link through the existing downloader", icon: "link")
+            }
+            NavigationLink {
+                SourceAppsView(object: Array(repositories), viewModel: sourcesModel)
+            } label: {
+                actionRow("Browse apps", description: "Search your imported repositories and download IPAs", icon: "magnifyingglass")
+            }
+            .disabled(repositories.isEmpty)
+            NavigationLink {
+                LibraryView()
+            } label: {
+                actionRow("Sign & manage apps", description: "Sign imported IPAs, or select several to batch sign", icon: "checkmark.shield.fill")
+            }
+            NavigationLink {
+                CertificatesView()
+            } label: {
+                actionRow("Signing certificates", description: "Select, import, and inspect signing identities", icon: "person.crop.rectangle.stack")
+            }
+            NavigationLink {
+                FilesView()
+            } label: {
+                actionRow("File manager", description: "Inspect and manage files stored in ShrubSign", icon: "folder.fill")
+            }
+            NavigationLink {
+                SourcesView()
+            } label: {
+                actionRow("Manage repositories", description: "Refresh, add, browse, or remove your sources", icon: "square.stack.3d.up.fill")
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var repositoryPreview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Repositories").font(.title2.bold())
+                Spacer()
+                Button("Add source", systemImage: "plus") { isAddingSource = true }
+                    .font(.subheadline)
+            }
+            if repositories.isEmpty {
+                Text("Add an AltStore-compatible source to discover apps.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(repositories.prefix(4))) { repository in
+                    NavigationLink {
+                        SourceAppsView(object: [repository], viewModel: sourcesModel)
+                    } label: {
+                        HStack {
+                            Image(systemName: "square.stack.3d.up.fill").foregroundStyle(.tint)
+                            Text(repository.name ?? "Unnamed repository")
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(13)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 13))
+                    }.buttonStyle(.plain)
+                }
+            }
+            Link(destination: URL(string: "https://shrublibrary.pages.dev")!) {
+                actionRow("Explore ShrubLibrary", description: "Find more repository links on the ShrubLibrary website", icon: "globe")
+            }.buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var expirationNotice: some View {
+        if expiringSoon > 0 {
+            Label("\(expiringSoon) certificate(s) expired or expiring within 30 days. Check your certificates before signing.", systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote).foregroundStyle(.orange)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        }
+        Text("The certificate dates are read from your saved profiles. Expiration does not indicate Apple revocation status.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 
     private func countTile(_ label: String, count: Int, symbol: String) -> some View {
@@ -228,11 +248,13 @@ private struct ShrubURLDownloadSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Direct IPA link") {
+                Section {
                     TextField("https://example.com/app.ipa", text: $text)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                } header: {
+                    Text("Direct IPA link")
                 } footer: {
                     Text("Enter an HTTP or HTTPS link to an IPA file. The existing download manager imports the archive into your library after downloading it.")
                 }

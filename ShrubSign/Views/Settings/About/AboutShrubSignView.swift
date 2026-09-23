@@ -21,8 +21,6 @@ struct AboutShrubSignView: View {
             Section {
                 VStack {
                     Image("ShrubHubMark")
-                        .resizable()
-                        .scaledToFit()
                         .appIconStyle(size: 72)
                     
                     Text(Bundle.main.exec)

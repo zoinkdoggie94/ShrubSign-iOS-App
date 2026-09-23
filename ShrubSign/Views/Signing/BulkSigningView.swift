@@ -41,6 +41,10 @@ struct BulkSigningView: View {
 	@State private var _isFilePickerPresenting = false
 	@State private var _isImagePickerPresenting = false
 	@State private var _isSigning = false
+    @State private var _isFinished = false
+    @State private var _completedCount = 0
+    @State private var _currentAppName = ""
+    @State private var _results: [SignResult] = []
 	@State private var _selectedPhoto: PhotosPickerItem? = nil
 	@State private var _editingConfigId: String?
 	
