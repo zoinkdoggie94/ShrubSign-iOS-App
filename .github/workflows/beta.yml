@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: shrubsign-beta-release
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build Beta
@@ -45,7 +49,9 @@ jobs:
           
           cat release_notes.md
 
-          gh release delete beta --cleanup-tag -y || true
+          if gh release view beta >/dev/null 2>&1; then
+            gh release delete beta --cleanup-tag -y
+          fi
           
           gh release create beta "packages/ShrubSign.ipa" \
             --title "ShrubSign Beta" \
@@ -54,9 +60,14 @@ jobs:
             --target ${{ github.sha }}
 
       - name: Notify Discord
+        continue-on-error: true
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "Discord webhook not configured; notification skipped."
+            exit 0
+          fi
           COMMIT_MSG=$(git log -1 --pretty=%B)
           
           REPO="${{ github.repository }}"
@@ -74,7 +85,7 @@ jobs:
             --arg release_url "$RELEASE_URL" \
             '{content: "**New ShrubSign Beta Released!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
 
-          curl -v \
+          curl --fail-with-body --silent --show-error \
             -H "Content-Type: application/json" \
             -d @discord_payload.json \
             "$DISCORD_WEBHOOK"

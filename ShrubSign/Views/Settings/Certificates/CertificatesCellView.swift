@@ -67,7 +67,7 @@ extension CertificatesCellView {
             pills.append(NBPillItem(title: "Revoked", icon: "xmark.octagon", color: .red))
         }
         else {
-            pills.append(NBPillItem(title: "Valid", icon: "checkmark.circle", color: .green))
+            pills.append(NBPillItem(title: "Not flagged revoked", icon: "checkmark.circle", color: .secondary))
         }
 		
 		if let info = cert.expiration?.expirationInfo() {

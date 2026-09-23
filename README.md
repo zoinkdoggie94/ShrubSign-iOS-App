@@ -6,17 +6,17 @@
 
 **ShrubSign** is ShrubHub's fork of [Ksign](https://github.com/nyasami/Ksign), an iOS app for signing and managing IPA files on supported devices.
 
-## What changed in the initial ShrubSign fork
+## ShrubSign 2 source updates
 
-- ShrubSign app name, bundle identifier, project/target names and release package names
-- ShrubHub app icon and branding
-- `shrubsign://` URL scheme, while retaining `ksign://` as a compatibility alias
-- ShrubSign GitHub/Discord/ShrubLibrary links
-- ShrubSign AltStore-compatible `repo.json`
-- ShrubSign beta build output (`ShrubSign.ipa`)
-- ShrubSign source defaults and log export names
+- New native **Home** tab with the ShrubHub icon, live app/repository/certificate totals, direct file/URL import, repository shortcuts and expiration reminders and certificate search.
+- Existing native app search, repository browser, download/import flows, certificates and file manager are available from the dashboard and tabs.
+- **Sequential batch signing** from Library selection: visible progress and per-app success or failure; one failed app does not cancel remaining apps.
+- GitHub beta release checker in Home and Settings, with an accurate build-SHA comparison when release metadata permits it.
+- Built-in ShrubLibrary website discovery link to find more repositories; add compatible repository JSON URLs through the native Add Source flow.
+- Optional Discord notifications do not fail the GitHub Actions workflow when `DISCORD_WEBHOOK` is unset.
+- Upstream URL-scheme compatibility, licenses and project history retained.
 
-The internal compatibility identifiers that would risk breaking existing behavior are intentionally preserved where appropriate.
+**Build and device testing:** This is the source release. Xcode compilation must be checked with GitHub Actions and signing/import/install behavior on a compatible iOS device. See [SHRUBSIGN_2_CHANGELOG.md](SHRUBSIGN_2_CHANGELOG.md) for exact scope and limitations.
 
 ## Building
 

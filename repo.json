@@ -1,37 +1,35 @@
 {
-    "name": "ShrubSign Repository",
-    "identifier": "com.shrubhub.shrubsign-repo",
-    "subtitle": "Official source for ShrubSign",
-    "description": "ShrubSign is a Ksign-based iOS signing app maintained by ShrubHub.",
-    "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
-    "website": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App",
-    "tintColor": "72E894",
-    "apps": [
+  "name": "ShrubSign Repository",
+  "identifier": "com.shrubhub.shrubsign-repo",
+  "subtitle": "Official source for ShrubSign",
+  "description": "ShrubSign is a Ksign-based iOS signer with a native dashboard, IPA import, batch signing, certificate management and repository browsing.",
+  "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
+  "website": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App",
+  "tintColor": "72E894",
+  "apps": [
+    {
+      "name": "ShrubSign",
+      "bundleIdentifier": "com.shrubhub.shrubsign",
+      "developerName": "ShrubHub",
+      "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
+      "localizedDescription": "ShrubSign 2: Native Home, multi-IPA import, sequential batch signing with per-app results, release checker, repositories and certificate tools.",
+      "subtitle": "iOS signing by ShrubHub",
+      "tintColor": "72E894",
+      "category": "utilities",
+      "versions": [
         {
-            "name": "ShrubSign",
-            "bundleIdentifier": "com.shrubhub.shrubsign",
-            "developerName": "ShrubHub",
-            "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
-            "localizedDescription": "ShrubSign is an iOS signing app based on Ksign, with ShrubHub branding and compatibility-focused changes.",
-            "subtitle": "iOS signing by ShrubHub",
-            "tintColor": "72E894",
-            "category": "utilities",
-            "versions": [
-                {
-                    "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v1.0.0/ShrubSign.ipa",
-                    "size": 14000000,
-                    "version": "1.0.0",
-                    "buildVersion": "1",
-                    "date": "2026-09-22T23:04:00-07:00",
-                    "localizedDescription": "Initial ShrubSign release based on Ksign, with ShrubSign identity, branding, URL scheme, source defaults, and release packaging.",
-                    "minOSVersion": "16.0"
-                }
-            ],
-            "appPermissions": {},
-            "version": "1.0.0",
-            "versionDate": "2026-09-22T23:04:00-07:00",
-            "size": 14000000,
-            "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v1.0.0/ShrubSign.ipa"
+          "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/beta/ShrubSign.ipa",
+          "version": "2.0.0",
+          "buildVersion": "2",
+          "date": "2026-09-23T12:18:00-07:00",
+          "localizedDescription": "Native ShrubSign dashboard, quick multi-IPA import, sequential batch signing with per-app results, GitHub beta release checker, and safer certificate status wording.",
+          "minOSVersion": "16.0"
         }
-    ]
+      ],
+      "appPermissions": {},
+      "version": "2.0.0",
+      "versionDate": "2026-09-23T12:18:00-07:00",
+      "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/beta/ShrubSign.ipa"
+    }
+  ]
 }

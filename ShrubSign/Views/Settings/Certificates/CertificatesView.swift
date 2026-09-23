@@ -13,6 +13,7 @@ import UIKit
 struct CertificatesView: View {
 	@AppStorage("feather.selectedCert") private var _storedSelectedCert: Int = 0
 	
+    @State private var certificateSearch = ""
 	@State private var _isAddingPresenting = false
 	@State private var _isSelectedInfoPresenting: CertificatePair?
 
@@ -23,6 +24,15 @@ struct CertificatesView: View {
 		animation: .snappy
 	) private var certificates: FetchedResults<CertificatePair>
 	
+    private var filteredCertificates: [(offset: Int, element: CertificatePair)] {
+        let all = Array(certificates.enumerated())
+        guard !certificateSearch.isEmpty else { return all }
+        return all.filter { item in
+            (item.element.nickname ?? "").localizedCaseInsensitiveContains(certificateSearch)
+            || (Storage.shared.getProvisionFileDecoded(for: item.element)?.Name ?? "").localizedCaseInsensitiveContains(certificateSearch)
+        }
+    }
+
 	//
 	private var _bindingSelectedCert: Binding<Int>?
 	private var _selectedCertBinding: Binding<Int> {
@@ -36,24 +46,27 @@ struct CertificatesView: View {
 	// MARK: Body
 	var body: some View {
 		NBGrid {
-			ForEach(Array(certificates.enumerated()), id: \.element.uuid) { index, cert in
+			ForEach(filteredCertificates, id: \.element.uuid) { index, cert in
 				_cellButton(for: cert, at: index)
 			}
 		}
+        .searchable(text: $certificateSearch, prompt: "Search certificates")
 		.navigationTitle(.localized("Certificates"))
 		.navigationBarTitleDisplayMode(.inline)
         .overlay {
-            if certificates.isEmpty {
+            if certificates.isEmpty || (!certificateSearch.isEmpty && filteredCertificates.isEmpty) {
                 if #available(iOS 17, *) {
                     ContentUnavailableView {
-                        Label(.localized("No Certificates"), systemImage: "questionmark.folder.fill")
+                        Label(certificates.isEmpty ? "No Certificates" : "No matching certificates", systemImage: "questionmark.folder.fill")
                     } description: {
-                        Text(.localized("Get started signing by importing your first certificate."))
+                        Text(certificates.isEmpty ? "Get started signing by importing your first certificate." : "Try a different certificate name.")
                     } actions: {
-                        Button {
-                            _isAddingPresenting = true
-                        } label: {
-							Text("Import").bg()
+                        if certificates.isEmpty {
+                            Button {
+                                _isAddingPresenting = true
+                            } label: {
+                                Text("Import").bg()
+                            }
                         }
                     }
                 }

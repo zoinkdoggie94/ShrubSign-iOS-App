@@ -16,6 +16,12 @@ struct AppSignConfig: Identifiable {
     var icon: UIImage?
 }
 
+private struct SignResult: Identifiable {
+    let id = UUID()
+    let name: String
+    let errorMessage: String?
+}
+
 struct BulkSigningView: View {
 	@FetchRequest(
 		entity: CertificatePair.entity(),
@@ -53,25 +59,62 @@ struct BulkSigningView: View {
 	var body: some View {
 		NBNavigationView(.localized("Bulk Signing"), displayMode: .inline) {
 			Form {
-                _cert()
-				
-				ForEach($_configs) { $config in
-					Section {
-						_customizationOptions(for: $config)
-						_customizationProperties(for: $config)
-					}
-				}
+                if _isSigning || _isFinished {
+                    Section("Batch progress") {
+                        ProgressView(value: Double(_completedCount), total: Double(max(1, _configs.count)))
+                        Text("\(_completedCount) of \(_configs.count) processed")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                        if _isSigning {
+                            Label("Signing \(_currentAppName)", systemImage: "signature")
+                                .font(.subheadline)
+                        } else {
+                            Text("Finished. Review results below and open your library to see signed apps.")
+                                .font(.subheadline)
+                        }
+                    }
+                    Section("Results") {
+                        ForEach(_results) { result in
+                            HStack(alignment: .top) {
+                                Image(systemName: result.errorMessage == nil ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(result.errorMessage == nil ? Color.green : Color.red)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(result.name)
+                                    if let error = result.errorMessage {
+                                        Text(error).font(.caption).foregroundStyle(.secondary)
+                                    } else {
+                                        Text("Signed successfully").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    _cert()
+                    ForEach($_configs) { $config in
+                        Section {
+                            _customizationOptions(for: $config)
+                            _customizationProperties(for: $config)
+                        }
+                    }
+                }
 			}
 			.safeAreaInset(edge: .bottom) {
-				Button {
-					_start()
-				} label: {
-					NBSheetButton(title: .localized("Start Signing"))
-				}
+                if _isFinished {
+                    Button {
+                        NotificationCenter.default.post(name: NSNotification.Name("ksign.bulkSigningFinished"), object: nil)
+                        dismiss()
+                    } label: { NBSheetButton(title: "Done") }
+                } else if !_isSigning {
+                    Button { _start() } label: {
+                        NBSheetButton(title: .localized("Start Signing"))
+                    }
+                }
 			}
 			.toolbar {
-				NBToolbarButton(role: .dismiss)
-				
+                if !_isSigning {
+                    NBToolbarButton(role: .dismiss)
+                }
+                if !_isSigning && !_isFinished {
 				NBToolbarButton(
 					.localized("Reset"),
 					style: .text,
@@ -83,6 +126,7 @@ struct BulkSigningView: View {
 						_configs[i].icon = nil
 					}
 				}
+                }
 			}
 			.sheet(isPresented: $_isAltPickerPresenting) {
 				if let id = _editingConfigId, let index = _configs.firstIndex(where: { $0.id == id }) {
@@ -117,7 +161,7 @@ struct BulkSigningView: View {
 					}
 				}
 			}
-			.disabled(_isSigning)
+            .interactiveDismissDisabled(_isSigning)
 			.animation(.smooth, value: _isSigning)
 		}
 	}
@@ -238,38 +282,53 @@ extension BulkSigningView {
 		}
 	}
 
-	private func _start() {
-		let canSign = _selectedCert() != nil || _configs.allSatisfy { $0.options.doAdhocSigning || $0.options.onlyModify }
-		guard canSign else {
-			UIAlertController.showAlertWithOk(
-				title: .localized("No Certificate"),
-				message: .localized("Please go to settings and import a valid certificate"),
-				isCancel: true
-			)
-			return
-		}
+    private func _start() {
+        guard !_isSigning, !_isFinished, !_configs.isEmpty else { return }
+        // Preserve the existing option that allows signing without a certificate.
+        let certificate = _selectedCert()
+        let canSign = certificate != nil || _configs.allSatisfy { $0.options.doAdhocSigning || $0.options.onlyModify }
+        guard canSign else {
+            UIAlertController.showAlertWithOk(
+                title: .localized("No Certificate"),
+                message: .localized("Please go to settings and import a valid certificate"),
+                isCancel: true
+            )
+            return
+        }
 
-		let generator = UIImpactFeedbackGenerator(style: .light)
-		generator.impactOccurred()
-		_isSigning = true
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        _completedCount = 0
+        _results = []
+        _isSigning = true
+        // A new copy of the configuration and selected certificate is held for this queue.
+        // Each signing operation starts only after the previous completion fires.
+        _signNext(0, configurations: _configs, certificate: certificate)
+    }
 
-		
-		for config in _configs {
-			FR.signPackageFile(
-				config.app,
-				using: config.options,
-				icon: config.icon,
-				certificate: _selectedCert()
-			) { [self] error in
-				if let error {
-					UIAlertController.showAlertWithOk(title: "Error", message: error.localizedDescription)
-				}
-				DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-					NotificationCenter.default.post(name: NSNotification.Name("ksign.bulkSigningFinished"), object: nil)
-				}
-				dismiss()
-			}
-		}
-
-	}
+    private func _signNext(
+        _ index: Int,
+        configurations: [AppSignConfig],
+        certificate: CertificatePair?
+    ) {
+        guard index < configurations.count else {
+            _currentAppName = ""
+            _isSigning = false
+            _isFinished = true
+            return
+        }
+        let config = configurations[index]
+        let appName = config.options.appName ?? config.app.name ?? "App \(index + 1)"
+        _currentAppName = appName
+        FR.signPackageFile(
+            config.app,
+            using: config.options,
+            icon: config.icon,
+            certificate: certificate
+        ) { error in
+            // FR invokes completion on the main actor. One failure does not stop the queue.
+            _results.append(SignResult(name: appName, errorMessage: error?.localizedDescription))
+            _completedCount += 1
+            _signNext(index + 1, configurations: configurations, certificate: certificate)
+        }
+    }
 }

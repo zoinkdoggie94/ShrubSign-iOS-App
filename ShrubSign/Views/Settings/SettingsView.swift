@@ -37,6 +37,9 @@ struct SettingsView: View {
 				_feedback()
 				
 				Section {
+                    NavigationLink(destination: ShrubUpdatesView()) {
+                        Label("Check for updates", systemImage: "arrow.triangle.2.circlepath")
+                    }
                     NavigationLink(destination: AppIconView()) {
                         Label(.localized("App Icon"), systemImage: "app.badge")
                     }

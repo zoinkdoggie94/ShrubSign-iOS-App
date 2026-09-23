@@ -33,6 +33,7 @@ $(SCHEMES): deps
 	    -sdk $(PLATFORM) \
 	    -derivedDataPath $(TMP) \
 	    -skipPackagePluginValidation \
+	    SHRUBSIGN_BUILD_SHA="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo local)" \
 	    CODE_SIGNING_ALLOWED=NO \
 	    ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=NO
 

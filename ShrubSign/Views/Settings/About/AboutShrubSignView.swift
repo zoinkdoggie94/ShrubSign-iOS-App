@@ -20,7 +20,9 @@ struct AboutShrubSignView: View {
 		NBList(.localized("About")) {
             Section {
                 VStack {
-                    Image(uiImage: (UIImage(named: Bundle.main.iconFileName ?? ""))! )
+                    Image("ShrubHubMark")
+                        .resizable()
+                        .scaledToFit()
                         .appIconStyle(size: 72)
                     
                     Text(Bundle.main.exec)
@@ -87,7 +89,7 @@ struct AboutShrubSignView: View {
 	private func _showPatchNotes() {
 		UIAlertController.showAlertWithOk(
 			title: "ShrubSign \(Bundle.main.version)",
-			message: "Initial ShrubSign fork based on Ksign. Branding, app identity, URL handling, source defaults, release packaging, and project naming have been updated for ShrubSign while preserving Ksign compatibility where useful.",
+			message: "ShrubSign 2 adds a native Home dashboard, IPA import shortcuts, repository discovery, certificate expiration reminders, and a GitHub beta update checker. Existing repository browsing, batch signing, and file management remain available.",
 			isCancel: true,
 			thankYou: true
 		)
