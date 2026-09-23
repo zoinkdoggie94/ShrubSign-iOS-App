@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Welcome to Ksign's Code of Conduct! This document outlines essential guidelines and important information regarding interacting with the repository.
+Welcome to ShrubSign's Code of Conduct! This document outlines essential guidelines and important information regarding interacting with the repository.
 
 ## Rules 
 - **Be respectful** when interacting in issues or us in general.

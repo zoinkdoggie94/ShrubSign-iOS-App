@@ -1,6 +1,6 @@
-NAME := Ksign
+NAME := ShrubSign
 PLATFORM := iphoneos
-SCHEMES := Ksign
+SCHEMES := ShrubSign
 TMP := $(TMPDIR)/$(NAME)
 STAGE := $(TMP)/stage
 APP := $(TMP)/Build/Products/Release-$(PLATFORM)
@@ -26,7 +26,7 @@ deps:
 
 $(SCHEMES): deps
 	xcodebuild \
-	    -project Ksign.xcodeproj \
+	    -project ShrubSign.xcodeproj \
 	    -scheme "$@" \
 	    -configuration Release \
 	    -arch arm64 \
@@ -51,4 +51,4 @@ $(SCHEMES): deps
 	ln -sf "$(STAGE)/Payload" Payload
 	
 	mkdir -p packages
-	zip -r9 "packages/$@.ipa" Payload
+	zip -r9 "packages/ShrubSign.ipa" Payload

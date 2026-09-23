@@ -1,42 +1,39 @@
+<p align="center">
+  <img src="https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png" width="160" alt="ShrubSign icon">
+</p>
 
-<img src="https://github.com/user-attachments/assets/986892f9-c32f-448d-a24e-ba8659203fbf" height="200">
+# ShrubSign
 
-# Ksign 
-[![GitHub Release](https://img.shields.io/github/v/release/nyasami/ksign?style=for-the-badge&color=3c94fc)](https://github.com/nyasami/ksign/releases/latest) 
-[![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/nyasami/ksign/total?style=for-the-badge&color=6bc563)](https://github.com/nyasami/ksign/releases)
+**ShrubSign** is ShrubHub's fork of [Ksign](https://github.com/nyasami/Ksign), an iOS app for signing and managing IPA files on supported devices.
 
-Yet another codesigning app, have you ever wondered what if Feather and Esign had a child?
+## What changed in the initial ShrubSign fork
 
-## Why?
-Since Esign is end of service so people been moving to other signing apps, but Esign was a really big part of the community, so with the help of Feather as the base app, I tried to recreate Esign as close as possible so you guys can easier to get familiar and less app switching for smooth sideloading.
+- ShrubSign app name, bundle identifier, project/target names and release package names
+- ShrubHub app icon and branding
+- `shrubsign://` URL scheme, while retaining `ksign://` as a compatibility alias
+- ShrubSign GitHub/Discord/ShrubLibrary links
+- ShrubSign AltStore-compatible `repo.json`
+- ShrubSign beta build output (`ShrubSign.ipa`)
+- ShrubSign source defaults and log export names
 
-Another reason is this app was built specifically for Khoindvn to share his certificates, allowing more people to access to sideloading without even have to buy a certificate!
+The internal compatibility identifiers that would risk breaking existing behavior are intentionally preserved where appropriate.
 
-## Help
-You can create your Issue at [Issue](https://github.com/Nyasami/Ksign-public/issues), this will also be the place for you to request a new feature so feel free to make one!
+## Building
 
-You can also join Ksign Discord [here](https://discord.gg/sfbZfQzVdQ) for better communication.
+Clone recursively, then build with Xcode or run:
 
-## Download
-Go to [Releases](https://github.com/Nyasami/Ksign-public/releases) and download the newest ipa from there.
+```sh
+make
+```
 
-## Star History
+The makefile creates `packages/ShrubSign.ipa`. The GitHub Actions beta workflow also publishes `ShrubSign.ipa` when it runs on `main`.
 
-<a href="https://www.star-history.com/?repos=nyasami%2Fksign&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=nyasami/ksign&type=date&theme=dark&legend=top-left&sealed_token=qF8r8F35jlacPKoDFdro6gYpDDUbVGloo-UPsBBqrAufefIWUZ7MY_TmH4j_UB2ailJBO_OYzkYV-jye9GlGJR-PfMID-XHRW52SHl--bD976zJlaiDwOA" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=nyasami/ksign&type=date&legend=top-left&sealed_token=qF8r8F35jlacPKoDFdro6gYpDDUbVGloo-UPsBBqrAufefIWUZ7MY_TmH4j_UB2ailJBO_OYzkYV-jye9GlGJR-PfMID-XHRW52SHl--bD976zJlaiDwOA" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=nyasami/ksign&type=date&legend=top-left&sealed_token=qF8r8F35jlacPKoDFdro6gYpDDUbVGloo-UPsBBqrAufefIWUZ7MY_TmH4j_UB2ailJBO_OYzkYV-jye9GlGJR-PfMID-XHRW52SHl--bD976zJlaiDwOA" />
- </picture>
-</a>
+## Upstream & credits
 
-## Special thanks
-- Feather by [claration](https://github.com/claration/Feather)  
+ShrubSign is based on **Ksign** by Nyasami/Nagata Asami and contributors. Ksign itself includes or derives work from Feather and other open-source projects; their existing notices and acknowledgements are retained in this repository.
 
-- Product manager Khoindvn
+Upstream Ksign: https://github.com/nyasami/Ksign
 
-- And you! for using the app ❤️
+## License
 
-## Disclaimer
-
-This project is maintained here, on GitHub. Releases are distributed here, on GitHub. We do not currently have a project website outside of this repository. Please make sure to avoid any sites that host our software as they are often malicious and are there to mislead to user.
+ShrubSign retains the upstream licensing requirements. See `LICENSE`, `LICENSE_ELLEKIT`, bundled acknowledgement files, and the licenses of included dependencies. Fork branding does not remove or replace upstream copyright/license notices.

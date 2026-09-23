@@ -44,8 +44,8 @@ jobs:
 
           gh release delete beta --cleanup-tag -y || true
           
-          gh release create beta "packages/Ksign.ipa" \
-            --title "Latest Beta Build" \
+          gh release create beta "packages/ShrubSign.ipa" \
+            --title "ShrubSign Beta" \
             --notes "$(cat release_notes.md)" \
             --prerelease \
             --target ${{ github.sha }}
@@ -58,7 +58,7 @@ jobs:
           
           REPO="${{ github.repository }}"
           TAG="beta"
-          FILENAME="Ksign.ipa"
+          FILENAME="ShrubSign.ipa"
           
           DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$FILENAME"
           RELEASE_URL="https://github.com/$REPO/releases/tag/$TAG"
@@ -69,7 +69,7 @@ jobs:
             --arg commit_msg "$COMMIT_MSG" \
             --arg download_url "$DOWNLOAD_URL" \
             --arg release_url "$RELEASE_URL" \
-            '{content: "**New Beta Released!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
+            '{content: "**New ShrubSign Beta Released!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
 
           curl -v \
             -H "Content-Type: application/json" \
