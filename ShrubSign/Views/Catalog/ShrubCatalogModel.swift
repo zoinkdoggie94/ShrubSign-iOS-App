@@ -1,4 +1,4 @@
-// ShrubSign 2.2 · Fast, on-demand ShrubLibrary catalog.
+// ShrubSign 2.3 · On-demand catalog with direct/proxy fallback and tolerant metadata.
 import Foundation
 import SwiftUI
 import AltSourceKit
@@ -16,6 +16,26 @@ struct ShrubCatalogResult: Sendable {
     let repository: ASRepository?
     let message: String?
     let usedCache: Bool
+    // Prepared off the main actor alongside repository decoding.
+    let entries: [ShrubCatalogEntry]
+
+    init(sourceURL: URL, repository: ASRepository?, message: String?, usedCache: Bool) {
+        self.sourceURL = sourceURL
+        self.repository = repository
+        self.message = message
+        self.usedCache = usedCache
+        let name = repository?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = (name?.isEmpty == false ? name! : sourceURL.host ?? "Repository")
+        if let repository {
+            self.entries = repository.apps.enumerated().map { index, app in
+                ShrubCatalogEntry(id: "\(sourceURL.absoluteString)#\(index)",
+                                  sourceURL: sourceURL, sourceName: displayName,
+                                  repository: repository, app: app)
+            }
+        } else {
+            self.entries = []
+        }
+    }
 }
 
 final class ShrubCatalogModel: ObservableObject {
@@ -34,10 +54,12 @@ final class ShrubCatalogModel: ObservableObject {
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var lastAttempt: Date?
 
-    var appCount: Int { chunks.values.reduce(0) { $0 + $1.count } }
+    @Published private(set) var appCount = 0
+    @Published private(set) var currentSourceName: String?
 
     private var loadedCache = false
     private var didAutoRefreshThisSession = false
+    private static let proxyBase = URL(string: "https://shrublibrary.pages.dev/proxy")!
     private var revisionWorkItem: DispatchWorkItem?
     private let refreshInterval: TimeInterval = 15 * 60
 
@@ -89,7 +111,7 @@ final class ShrubCatalogModel: ObservableObject {
                 }
                 for await result in tasks {
                     if let repo = result.repository {
-                        accept(repo, from: result.sourceURL)
+                        accept(repo, from: result.sourceURL, entries: result.entries)
                     }
                 }
             }
@@ -111,6 +133,7 @@ final class ShrubCatalogModel: ObservableObject {
         checkedCount = 0
         errors = [:]
         cachedFallbacks = []
+        currentSourceName = nil
 
         let attemptDate = Date()
         lastAttempt = attemptDate
@@ -118,6 +141,7 @@ final class ShrubCatalogModel: ObservableObject {
 
         defer {
             isLoading = false
+            currentSourceName = nil
             publishRevisionSoon()
         }
 
@@ -148,7 +172,7 @@ final class ShrubCatalogModel: ObservableObject {
         // Keep network pressure low on iPad. Completing one source starts exactly one next source.
         await withTaskGroup(of: ShrubCatalogResult.self) { tasks in
             var iterator = urls.makeIterator()
-            let concurrency = min(3, urls.count)
+            let concurrency = min(2, urls.count)
             for _ in 0..<concurrency {
                 if let url = iterator.next() {
                     tasks.addTask { await Self.fetchRepository(at: url) }
@@ -162,9 +186,10 @@ final class ShrubCatalogModel: ObservableObject {
                 }
 
                 checkedCount += 1
+                currentSourceName = result.repository?.name ?? result.sourceURL.host
                 let key = result.sourceURL.absoluteString
                 if let repo = result.repository {
-                    accept(repo, from: result.sourceURL)
+                    accept(repo, from: result.sourceURL, entries: result.entries)
                     errors.removeValue(forKey: key)
                     if result.usedCache { cachedFallbacks.insert(key) }
                     else { cachedFallbacks.remove(key) }
@@ -188,20 +213,11 @@ final class ShrubCatalogModel: ObservableObject {
     }
 
     @MainActor
-    private func accept(_ repository: ASRepository, from url: URL) {
+    private func accept(_ repository: ASRepository, from url: URL, entries: [ShrubCatalogEntry]) {
         let key = url.absoluteString
+        appCount += entries.count - (chunks[key]?.count ?? 0)
         repositories[key] = repository
-        let name = repository.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = (name?.isEmpty == false ? name! : url.host ?? "Repository")
-        chunks[key] = repository.apps.enumerated().map { index, app in
-            ShrubCatalogEntry(
-                id: "\(key)#\(index)",
-                sourceURL: url,
-                sourceName: displayName,
-                repository: repository,
-                app: app
-            )
-        }
+        chunks[key] = entries
     }
 
     @MainActor
@@ -211,7 +227,7 @@ final class ShrubCatalogModel: ObservableObject {
             self?.revision &+= 1
         }
         revisionWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.65, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: item)
     }
 
     private enum CatalogError: LocalizedError {
@@ -226,8 +242,10 @@ final class ShrubCatalogModel: ObservableObject {
     }
 
     private static func checkHTTP(_ response: URLResponse, data: Data, maximum: Int) throws {
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            throw CatalogError.invalidResponse
+        guard let response = response as? HTTPURLResponse else { throw CatalogError.invalidResponse }
+        guard (200..<300).contains(response.statusCode) else {
+            throw NSError(domain: "ShrubLibraryHTTP", code: response.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "Server returned HTTP \(response.statusCode)"])
         }
         guard data.count <= maximum else { throw CatalogError.oversized }
     }
@@ -274,36 +292,108 @@ final class ShrubCatalogModel: ObservableObject {
     private static func cachedRepository(at url: URL) -> ShrubCatalogResult {
         do {
             let data = try Data(contentsOf: cacheURL(for: url), options: [.mappedIfSafe])
-            let repo = try JSONDecoder().decode(ASRepository.self, from: data)
+            let (repo, _) = try decodeRepository(data, originalURL: url)
             return ShrubCatalogResult(sourceURL: url, repository: repo, message: nil, usedCache: true)
         } catch {
             return ShrubCatalogResult(sourceURL: url, repository: nil, message: error.localizedDescription, usedCache: false)
         }
     }
 
-    private static func fetchRepository(at url: URL) async -> ShrubCatalogResult {
-        do {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 22
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.setValue("application/json,text/plain;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
-            request.setValue("ShrubSign/2.2", forHTTPHeaderField: "User-Agent")
+    // Proxy is a fallback for connection/format failures, not a mandatory extra
+    // round trip for every healthy repository. The original source URL stays
+    // attached to the parsed repository and is never replaced with /proxy.
+    private static func proxyURL(for original: URL, repair: Bool = false, image: Bool = false) -> URL? {
+        guard ["https", "http"].contains(original.scheme?.lowercased() ?? ""),
+              let host = original.host, !host.isEmpty else { return nil }
+        var components = URLComponents(url: proxyBase, resolvingAgainstBaseURL: false)
+        var items = [URLQueryItem(name: "url", value: original.absoluteString)]
+        if repair { items.append(URLQueryItem(name: "repair", value: "1")) }
+        if image { items.append(URLQueryItem(name: "image", value: "1")) }
+        components?.queryItems = items
+        return components?.url
+    }
 
-            let (data, response) = try await URLSession.shared.data(for: request)
-            try checkHTTP(response, data: data, maximum: 100_000_000)
-            let repo = try JSONDecoder().decode(ASRepository.self, from: data)
-            try? data.write(to: cacheURL(for: url), options: .atomic)
-            return ShrubCatalogResult(sourceURL: url, repository: repo, message: nil, usedCache: false)
-        } catch is CancellationError {
-            return ShrubCatalogResult(sourceURL: url, repository: nil, message: "Cancelled", usedCache: false)
-        } catch {
-            // A temporary network/parse failure should not erase a repository that worked previously.
-            let cached = cachedRepository(at: url)
-            if let repo = cached.repository {
-                return ShrubCatalogResult(sourceURL: url, repository: repo, message: error.localizedDescription, usedCache: true)
+    static func imageFallbackURL(for url: URL) -> URL? {
+        proxyURL(for: url, image: true)
+    }
+
+    private static func fetchRepository(at url: URL) async -> ShrubCatalogResult {
+        var failures: [String] = []
+        // Only known TLS-troubled sources try the existing ShrubLibrary edge
+        // proxy first; all other sources prefer a normal, direct request.
+        let proxyFirst = ["delvek.net", "ipa.thuthuatjb.com"].contains(url.host?.lowercased() ?? "")
+        var attempts: [(URL, Bool)] = []
+        if proxyFirst, let proxy = proxyURL(for: url) { attempts.append((proxy, false)) }
+        attempts.append((url, false))
+        if !proxyFirst, let proxy = proxyURL(for: url) { attempts.append((proxy, false)) }
+
+        for (requestURL, _) in attempts {
+            if Task.isCancelled {
+                return ShrubCatalogResult(sourceURL: url, repository: nil, message: "Cancelled", usedCache: false)
             }
-            return ShrubCatalogResult(sourceURL: url, repository: nil, message: Self.friendlyError(error), usedCache: false)
+            do {
+                let data = try await downloadRepositoryData(from: requestURL)
+                do {
+                    let (repo, normalizedData) = try decodeRepository(data, originalURL: url)
+                    try? normalizedData.write(to: cacheURL(for: url), options: .atomic)
+                    return ShrubCatalogResult(sourceURL: url, repository: repo, message: nil, usedCache: false)
+                } catch {
+                    failures.append("\(requestURL == url ? "Direct" : "Proxy"): \(friendlyError(error))")
+                    // Repair only malformed JSON. A repository with valid JSON but
+                    // unsupported app metadata cannot be fixed by JSON text repair.
+                    if requestURL != url, !isValidJSON(data),
+                       let repaired = proxyURL(for: url, repair: true) {
+                        do {
+                            let repairedData = try await downloadRepositoryData(from: repaired)
+                            let (repo, normalizedData) = try decodeRepository(repairedData, originalURL: url)
+                            try? normalizedData.write(to: cacheURL(for: url), options: .atomic)
+                            return ShrubCatalogResult(sourceURL: url, repository: repo, message: nil, usedCache: false)
+                        } catch {
+                            failures.append("Repair: \(friendlyError(error))")
+                        }
+                    }
+                }
+            } catch {
+                failures.append("\(requestURL == url ? "Direct" : "Proxy"): \(friendlyError(error))")
+            }
         }
+        // A temporary fetch failure must not erase previously cached apps.
+        let cached = cachedRepository(at: url)
+        let message = failures.joined(separator: " · ")
+        if let repo = cached.repository {
+            return ShrubCatalogResult(sourceURL: url, repository: repo,
+                                      message: message, usedCache: true)
+        }
+        return ShrubCatalogResult(sourceURL: url, repository: nil,
+                                  message: message.isEmpty ? "Source unavailable" : message,
+                                  usedCache: false)
+    }
+
+    private static func downloadRepositoryData(from url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 35
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json,text/plain;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("ShrubSign/2.3 (iOS; repository client)", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try checkHTTP(response, data: data, maximum: 100_000_000)
+        return data
+    }
+
+    private static func isValidJSON(_ data: Data) -> Bool {
+        (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
+    }
+
+    private static func decodeRepository(_ data: Data, originalURL: URL) throws -> (ASRepository, Data) {
+        // Fast path: preserve standard repositories byte-for-byte when possible.
+        if let repo = try? JSONDecoder().decode(ASRepository.self, from: data),
+           (repo.iconURL == nil || repo.iconURL?.scheme != nil) {
+            return (repo, data)
+        }
+        // Tolerant fallback: normalize inconsistent optional metadata and URLs,
+        // while keeping real app names, source identities and download links.
+        let cleaned = try ShrubCatalogJSON.normalize(data, sourceURL: originalURL)
+        return (try JSONDecoder().decode(ASRepository.self, from: cleaned), cleaned)
     }
 
     private static func friendlyError(_ error: Error) -> String {

@@ -1,4 +1,4 @@
-// ShrubSign 2.1 · Search all loaded sources, preserving per-repository choices.
+// ShrubSign 2.3 · Responsive native catalog with source icons and honest status.
 import SwiftUI
 import CoreData
 import AltSourceKit
@@ -74,38 +74,75 @@ struct ShrubCatalogView: View {
     private var appsList: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Label("ShrubLibrary Catalog", systemImage: "square.stack.3d.up.fill")
-                            .font(.headline)
-                        Spacer()
-                        if catalog.isLoading { ProgressView().controlSize(.small) }
+                VStack(alignment: .leading, spacing: 13) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(.green)
+                            .frame(width: 46, height: 46)
+                            .background(.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("ShrubLibrary Catalog").font(.headline)
+                            Text("Apps from independent sources")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Text("\(catalog.repositories.count) of \(catalog.directory.count) ShrubLibrary repositories loaded · \(catalog.appCount.formatted()) app listings")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 12) {
+                        Label("\(catalog.appCount.formatted()) apps", systemImage: "square.grid.2x2.fill")
+                        Label("\(catalog.repositories.count)/\(catalog.directory.count) sources", systemImage: "tray.full.fill")
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     if catalog.isLoading {
-                        ProgressView(value: Double(catalog.checkedCount), total: Double(max(catalog.directory.count, 1)))
-                        Text("Checked \(catalog.checkedCount) of \(catalog.directory.count) sources. Search while new apps load.")
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small).tint(.green)
+                                Text("Loading repositories")
+                                    .font(.subheadline.weight(.medium))
+                                Spacer()
+                                Text("\(catalog.checkedCount)/\(catalog.directory.count)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            ProgressView(value: Double(catalog.checkedCount),
+                                         total: Double(max(catalog.directory.count, 1)))
+                                .tint(.green)
+                            Text("\(catalog.currentSourceName ?? "Connecting to sources…") · Search available apps while loading")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .padding(12)
+                        .background(Color(uiColor: .tertiarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 12))
+                    } else if !catalog.directory.isEmpty {
+                        Label("Catalog ready · Pull down to refresh", systemImage: "checkmark.circle.fill")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if !catalog.errors.isEmpty || catalog.directoryError != nil {
-                        Button("Source status (\(catalog.errors.count) need attention)") { showingFailures = true }
+                        Button { showingFailures = true } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.circle")
+                                Text("Review \(catalog.errors.count) source issues")
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption)
+                            }
                             .font(.subheadline)
+                            .foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Review repository errors")
                     }
                     if !catalog.cachedFallbacks.isEmpty {
-                        Label("Using cached data for \(catalog.cachedFallbacks.count) source(s)", systemImage: "clock.arrow.circlepath")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Label("\(catalog.cachedFallbacks.count) sources using saved data", systemImage: "clock.arrow.circlepath")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    if let updated = catalog.lastUpdated {
-                        Text("Last complete refresh: \(updated.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Text("Listings come from independent repositories. Check source and file safety before installing.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Apps are supplied by independent repositories. Verify sources before installing.")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 5)
+                .padding(.vertical, 6)
             }
             if isSearching { ProgressView("Updating results...") }
             Section {
@@ -179,21 +216,32 @@ struct ShrubCatalogView: View {
                         NavigationLink {
                             ShrubCatalogRepositoryView(repository: repo, sourceURL: url)
                         } label: {
-                            Label {
-                                VStack(alignment: .leading) {
-                                    Text(repo.name ?? url.host ?? "Repository").lineLimit(2)
+                            HStack(spacing: 12) {
+                                ShrubCatalogRemoteIcon(url: repo.iconURL, size: 44,
+                                                       fallback: "square.stack.3d.up")
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(repo.name ?? url.host ?? "Repository")
+                                        .font(.subheadline.weight(.semibold)).lineLimit(2)
                                     Text("\(repo.apps.count.formatted()) apps · \(url.host ?? "")")
                                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }
-                            } icon: { Image(systemName: "square.stack.3d.up") }
+                            }
+                            .padding(.vertical, 3)
                         }
                     } else {
                         HStack {
-                            Label(url.host ?? url.absoluteString, systemImage: "square.stack.3d.up")
-                                .lineLimit(2)
-                            Spacer()
-                            Text(catalog.errors[url.absoluteString] == nil ? "Loading" : "Needs attention")
-                                .font(.caption).foregroundStyle(.secondary)
+                            ShrubCatalogRemoteIcon(url: nil, size: 40,
+                                                   fallback: "square.stack.3d.up")
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(url.host ?? url.absoluteString).lineLimit(2)
+                                Text(catalog.errors[url.absoluteString] != nil ? "Unavailable · Check source status" :
+                                     catalog.isLoading ? "Waiting for repository…" : "Not loaded")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            if catalog.isLoading && catalog.errors[url.absoluteString] == nil {
+                                ProgressView().controlSize(.mini)
+                            }
                         }
                     }
                 }
@@ -225,13 +273,15 @@ struct ShrubCatalogView: View {
                         NavigationLink {
                             ShrubCatalogRepositoryView(repository: repo, sourceURL: source.sourceURL)
                         } label: {
-                            Label {
+                            HStack(spacing: 12) {
+                                ShrubCatalogRemoteIcon(url: repo.iconURL, size: 44,
+                                                       fallback: "square.stack.3d.up")
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(source.name ?? "Unnamed source")
+                                    Text(source.name ?? "Unnamed source").lineLimit(2)
                                     Text("\(repo.apps.count.formatted()) apps · \(source.sourceURL?.host ?? "")")
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }
-                            } icon: { Image(systemName: "square.stack.3d.up") }
+                            }
                         }
                     } else {
                         Label(source.name ?? "Unavailable source", systemImage: "exclamationmark.triangle")
@@ -249,8 +299,10 @@ struct ShrubCatalogView: View {
                 if let error = catalog.directoryError { Text(error) }
                 ForEach(catalog.errors.keys.sorted(), id: \.self) { key in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(key).font(.footnote).textSelection(.enabled)
-                        Text(catalog.errors[key] ?? "Could not load this source right now").font(.caption).foregroundStyle(.secondary)
+                        Label(key, systemImage: "exclamationmark.triangle")
+                            .font(.footnote.weight(.medium)).textSelection(.enabled)
+                        Text(catalog.errors[key] ?? "Could not load this source right now")
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                 }
             }
@@ -276,7 +328,7 @@ struct ShrubCatalogView: View {
             guard let url = source.sourceURL, !known.contains(url.absoluteString) else { return nil }
             return (url, repo.name ?? source.name ?? url.host ?? "Repository", repo)
         }
-        let outcome = await Task.detached(priority: .userInitiated) { () -> ([ShrubCatalogEntry], Int) in
+        let worker = Task.detached(priority: .userInitiated) { () -> ([ShrubCatalogEntry], Int) in
             let tokens = query.lowercased()
             var buckets = Array(repeating: [ShrubCatalogEntry](), count: 7)
             var count = 0
@@ -288,7 +340,9 @@ struct ShrubCatalogView: View {
                 })
             }
             for chunk in searchChunks {
+                if Task.isCancelled { break }
                 for entry in chunk {
+                    if Task.isCancelled { break }
                     let name = entry.app.currentName.lowercased()
                     let identifier = (entry.app.id ?? "").lowercased()
                     let source = entry.sourceName.lowercased()
@@ -308,7 +362,12 @@ struct ShrubCatalogView: View {
                 }
             }
             return (Array(buckets.joined().prefix(1200)), count)
-        }.value
+        }
+        let outcome = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
         guard !Task.isCancelled else { return }
         results = outcome.0
         totalMatches = outcome.1
@@ -334,8 +393,17 @@ private struct ShrubCatalogRepositoryView: View {
     var body: some View {
         List {
             Section {
-                Text("\(repository.apps.count.formatted()) app listings")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    ShrubCatalogRemoteIcon(url: repository.iconURL, size: 56,
+                                           fallback: "square.stack.3d.up.fill")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(repository.name ?? "Repository")
+                            .font(.headline).lineLimit(2)
+                        Text("\(repository.apps.count.formatted()) app listings")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
                 if let sourceURL {
                     Text(sourceURL.absoluteString).font(.caption)
                         .foregroundStyle(.secondary).textSelection(.enabled)
@@ -346,10 +414,14 @@ private struct ShrubCatalogRepositoryView: View {
                     NavigationLink {
                         SourceAppsDetailView(source: repository, app: item.element)
                     } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.element.currentName).lineLimit(2)
-                            Text(item.element.currentVersion ?? "Version not listed")
-                                .font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            ShrubCatalogRemoteIcon(url: item.element.iconURL, size: 42,
+                                                   fallback: "app.dashed")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.element.currentName).lineLimit(2)
+                                Text(item.element.currentVersion ?? "Version not listed")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -362,5 +434,48 @@ private struct ShrubCatalogRepositoryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $search, prompt: "Search this repository")
         .onChange(of: search) { _ in visible = 80 }
+    }
+}
+
+// Display genuine source artwork when published; use an unobtrusive native
+// symbol when absent. Only retry a failed icon through the existing proxy.
+private struct ShrubCatalogRemoteIcon: View {
+    let url: URL?
+    let size: CGFloat
+    let fallback: String
+    @State private var useProxy = false
+
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: useProxy ? ShrubCatalogModel.imageFallbackURL(for: url) : url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .failure:
+                        Image(systemName: fallback)
+                            .resizable().scaledToFit().padding(size * 0.27)
+                            .foregroundStyle(.secondary)
+                            .task { if !useProxy { useProxy = true } }
+                    case .empty:
+                        Image(systemName: fallback)
+                            .resizable().scaledToFit().padding(size * 0.27)
+                            .foregroundStyle(.secondary)
+                    @unknown default:
+                        Image(systemName: fallback)
+                            .resizable().scaledToFit().padding(size * 0.27)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Image(systemName: fallback)
+                    .resizable().scaledToFit().padding(size * 0.27)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+        .accessibilityHidden(true)
     }
 }

@@ -94,6 +94,14 @@ public struct ASRepository: Sendable, Decodable, Hashable, Identifiable {
         )
 
         let decodedApps = try container.decodeIfPresent(ShrubLossyArray<App>.self, forKey: .apps)?.values
+        if (decodedApps?.isEmpty ?? true),
+           let rawEntries = try? container.decodeIfPresent([[String: String]].self, forKey: .apps),
+           !rawEntries.isEmpty,
+           rawEntries.allSatisfy({ $0["marketplaceID"] != nil && $0["downloadURL"] == nil }) {
+            throw NSError(domain: "FeatherSources", code: 44522, userInfo: [
+                NSLocalizedDescriptionKey: "Marketplace-only source; no sideloadable IPA downloads are listed."
+            ])
+        }
         guard
             let apps = decodedApps,
             !apps.isEmpty
@@ -102,7 +110,7 @@ public struct ASRepository: Sendable, Decodable, Hashable, Identifiable {
                 domain: "FeatherSources",
                 code: 44521,
                 userInfo: [
-                    NSLocalizedDescriptionKey: "This source does not contain any apps."
+                    NSLocalizedDescriptionKey: "No compatible IPA listings were parsed from this source."
                 ]
             )
         }

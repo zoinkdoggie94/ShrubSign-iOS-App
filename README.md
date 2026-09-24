@@ -1,3 +1,5 @@
+> **ShrubSign 2.3 catalog maintenance:** The native ShrubLibrary catalog now tries direct repository fetches with a fallback to the existing ShrubLibrary /proxy endpoint, normalizes supported inconsistent optional metadata, displays repository icons when available, and uses a more compact progress view. Marketplace-only sources without IPA downloads remain unsupported. Live results depend on source availability and proxy deployment. See `SHRUBSIGN_2_3_NOTES.md`.
+
 <p align="center">
   <img src="https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png" width="160" alt="ShrubSign icon">
 </p>

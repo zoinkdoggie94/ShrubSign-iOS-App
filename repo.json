@@ -12,22 +12,22 @@
       "bundleIdentifier": "com.shrubhub.shrubsign",
       "developerName": "ShrubHub",
       "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
-      "localizedDescription": "ShrubSign 2.1: Unified ShrubLibrary catalog, per-repository app results, signing presets, certificate dashboard, richer IPA details and improved downloads.",
+      "localizedDescription": "ShrubSign 2.3: native catalog source icons, clearer progress, direct/edge-proxy source fetching with selective JSON repair, and more tolerant repository parsing.",
       "subtitle": "iOS signing by ShrubHub",
       "tintColor": "72E894",
       "category": "utilities",
       "versions": [
         {
           "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/beta/ShrubSign.ipa",
-          "version": "2.1.0",
-          "buildVersion": "3",
+          "version": "2.3.0",
+          "buildVersion": "4",
           "date": "2026-09-23T20:55:47Z",
-          "localizedDescription": "Native ShrubLibrary catalog with per-source app identity and caching, import-compatible app details, reusable signing presets, certificate filters, IPA details and download error/retry UI.",
+          "localizedDescription": "Repository compatibility, native catalog polish, cache and fetching fixes.",
           "minOSVersion": "16.0"
         }
       ],
       "appPermissions": {},
-      "version": "2.1.0",
+      "version": "2.3.0",
       "versionDate": "2026-09-23T20:55:47Z",
       "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/beta/ShrubSign.ipa"
     }
