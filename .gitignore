@@ -4,3 +4,6 @@ Payload
 *UserInterfaceState.xcuserstate
 xcuserdata/
 deps
+# Local build and upload archives
+/*.zip
+/*.ipa
