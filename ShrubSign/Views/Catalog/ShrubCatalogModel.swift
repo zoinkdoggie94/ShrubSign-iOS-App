@@ -1,4 +1,4 @@
-// ShrubSign 2.3 · On-demand catalog with direct/proxy fallback and tolerant metadata.
+// ShrubSign 2.3.1 · Explicit catalog loading; avoid decoding the entire cache on first tab display.
 import Foundation
 import SwiftUI
 import AltSourceKit
@@ -49,6 +49,7 @@ final class ShrubCatalogModel: ObservableObject {
     @Published private(set) var cachedFallbacks: Set<String> = []
     @Published private(set) var checkedCount = 0
     @Published private(set) var isLoading = false
+    @Published private(set) var hasRequestedLoad = false
     @Published private(set) var directoryError: String?
     @Published private(set) var revision = 0
     @Published private(set) var lastUpdated: Date?
@@ -58,7 +59,7 @@ final class ShrubCatalogModel: ObservableObject {
     @Published private(set) var currentSourceName: String?
 
     private var loadedCache = false
-    private var didAutoRefreshThisSession = false
+    private var isPreparingLoad = false
     private static let proxyBase = URL(string: "https://shrublibrary.pages.dev/proxy")!
     private var revisionWorkItem: DispatchWorkItem?
     private let refreshInterval: TimeInterval = 15 * 60
@@ -71,52 +72,28 @@ final class ShrubCatalogModel: ObservableObject {
         if attemptTimestamp > 0 { lastAttempt = Date(timeIntervalSince1970: attemptTimestamp) }
     }
 
-    @MainActor
-    func loadIfNeeded() async {
-        await loadCacheOnce()
-        guard !didAutoRefreshThisSession else { return }
-        didAutoRefreshThisSession = true
-
-        // A partial failure must not cause a refresh loop every time SwiftUI recreates the view.
-        if !directory.isEmpty,
-           let lastAttempt,
-           Date().timeIntervalSince(lastAttempt) < refreshInterval {
-            return
-        }
-        await loadNetwork(force: false)
-    }
-
+    // Called exclusively by a user action. Merely opening the ShrubLibrary tab
+    // must not begin network requests or decode thousands of cached app models.
     @MainActor
     func refresh() async {
-        await loadCacheOnce()
+        guard !isPreparingLoad && !isLoading else { return }
+        isPreparingLoad = true
+        hasRequestedLoad = true
+        defer { isPreparingLoad = false }
+        await loadCacheDirectoryOnce()
         await loadNetwork(force: true)
     }
 
+    // Cache hydration previously eagerly decoded every saved repository as soon
+    // as the tab appeared. On low-memory devices this could terminate the app.
+    // A small cached directory is enough to retain source URLs for offline retry;
+    // individual repositories use their disk cache only when a fetch fails.
     @MainActor
-    private func loadCacheOnce() async {
+    private func loadCacheDirectoryOnce() async {
         guard !loadedCache else { return }
         loadedCache = true
-
         let cachedDirectory = Self.readCachedDirectory()
         directory = Self.parseDirectory(cachedDirectory)
-        guard !directory.isEmpty else { return }
-
-        // Load disk cache in small batches. Cached apps appear immediately with no network traffic.
-        for group in stride(from: 0, to: directory.count, by: 6) {
-            guard !Task.isCancelled else { return }
-            let batch = Array(directory[group..<min(group + 6, directory.count)])
-            await withTaskGroup(of: ShrubCatalogResult.self) { tasks in
-                for url in batch {
-                    tasks.addTask { Self.cachedRepository(at: url) }
-                }
-                for await result in tasks {
-                    if let repo = result.repository {
-                        accept(repo, from: result.sourceURL, entries: result.entries)
-                    }
-                }
-            }
-        }
-        publishRevisionSoon()
     }
 
     @MainActor

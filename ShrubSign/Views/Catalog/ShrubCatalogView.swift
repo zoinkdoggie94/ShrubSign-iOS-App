@@ -1,4 +1,4 @@
-// ShrubSign 2.3 · Responsive native catalog with source icons and honest status.
+// ShrubSign 2.3.1 · Explicit loading, lightweight first launch, clear repository controls.
 import SwiftUI
 import CoreData
 import AltSourceKit
@@ -42,11 +42,15 @@ struct ShrubCatalogView: View {
             .navigationTitle("ShrubLibrary")
             .searchable(text: $searchText, prompt: scope == 0 ? "Search apps, bundles, sources" : "Search repositories")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if catalog.isLoading { ProgressView().accessibilityLabel("Refreshing catalog") }
-                    else {
-                        Button { Task { await catalog.refresh() } } label: {
-                            Label("Refresh catalog", systemImage: "arrow.clockwise")
+                if scope != 2 {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        if catalog.isLoading {
+                            ProgressView().accessibilityLabel("Loading ShrubLibrary repositories")
+                        } else {
+                            Button { Task { await catalog.refresh() } } label: {
+                                Label("Load or refresh repositories", systemImage: "arrow.clockwise")
+                            }
+                            .accessibilityHint("Starts loading the ShrubLibrary repository directory")
                         }
                     }
                 }
@@ -60,10 +64,10 @@ struct ShrubCatalogView: View {
                 SourcesAddView().presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showingFailures) { failureSheet }
-            .task {
-                await catalog.loadIfNeeded()
-            }
-            .task(id: customSources.map { $0.objectID }.description) {
+            // Custom repositories are only fetched after choosing Imported;
+            // opening the catalog must never start two independent loading jobs.
+            .task(id: scope == 2 ? customSources.map { $0.objectID }.description : "not-imported") {
+                guard scope == 2 else { return }
                 await customModel.fetchSources(customSources)
             }
             .onReceive(customModel.$sources) { _ in customRevision &+= 1 }
@@ -96,31 +100,7 @@ struct ShrubCatalogView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
-                    if catalog.isLoading {
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.small).tint(.green)
-                                Text("Loading repositories")
-                                    .font(.subheadline.weight(.medium))
-                                Spacer()
-                                Text("\(catalog.checkedCount)/\(catalog.directory.count)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                            ProgressView(value: Double(catalog.checkedCount),
-                                         total: Double(max(catalog.directory.count, 1)))
-                                .tint(.green)
-                            Text("\(catalog.currentSourceName ?? "Connecting to sources…") · Search available apps while loading")
-                                .font(.caption).foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .padding(12)
-                        .background(Color(uiColor: .tertiarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 12))
-                    } else if !catalog.directory.isEmpty {
-                        Label("Catalog ready · Pull down to refresh", systemImage: "checkmark.circle.fill")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    catalogLoadingControl
                     if !catalog.errors.isEmpty || catalog.directoryError != nil {
                         Button { showingFailures = true } label: {
                             HStack(spacing: 8) {
@@ -139,7 +119,7 @@ struct ShrubCatalogView: View {
                         Label("\(catalog.cachedFallbacks.count) sources using saved data", systemImage: "clock.arrow.circlepath")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("Apps are supplied by independent repositories. Verify sources before installing.")
+                    Text("App listings are provided by independent repositories. Check the source before installing.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 6)
@@ -156,7 +136,9 @@ struct ShrubCatalogView: View {
                 if results.isEmpty && !isSearching {
                     VStack(alignment: .leading, spacing: 5) {
                         Label("No apps found", systemImage: "magnifyingglass")
-                        Text(catalog.isLoading ? "Sources are still loading." : "Try another search or refresh the catalog.")
+                        Text(catalog.isLoading ? "Results will appear as repositories finish loading." :
+                             !catalog.hasRequestedLoad ? "Tap Load ShrubLibrary Repositories above to get started." :
+                             "Try a different search, or tap Refresh repositories above.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -179,6 +161,64 @@ struct ShrubCatalogView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { await catalog.refresh() }
+    }
+
+    // A full-size labeled action is deliberately shown even when the toolbar
+    // contains a refresh symbol. This makes first-run behavior obvious on iPad.
+    private var catalogLoadingControl: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if catalog.isLoading {
+                HStack(spacing: 10) {
+                    ProgressView().tint(.green)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Loading ShrubLibrary").font(.subheadline.weight(.semibold))
+                        Text(catalog.directory.isEmpty ? "Connecting to the repository directory…" :
+                             "Checking \(catalog.checkedCount) of \(catalog.directory.count) repositories")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                if !catalog.directory.isEmpty {
+                    ProgressView(value: Double(catalog.checkedCount),
+                                 total: Double(max(catalog.directory.count, 1)))
+                        .tint(.green)
+                    if let name = catalog.currentSourceName {
+                        Text(name).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                }
+                Text("You can search apps that have already loaded.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(!catalog.hasRequestedLoad ? "Discover apps from ShrubLibrary" :
+                         catalog.repositories.isEmpty ? "Unable to load repositories" : "Your library is ready")
+                        .font(.subheadline.weight(.semibold))
+                    Text(!catalog.hasRequestedLoad ?
+                         "Repositories load only when you tap the button below. Nothing downloads just by opening this tab." :
+                         catalog.repositories.isEmpty ? "Check source status or try loading again. Saved app data is not deleted." :
+                         "You control when repositories refresh. Your current results remain available until you choose to reload.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button {
+                    Task { await catalog.refresh() }
+                } label: {
+                    Label(catalog.hasRequestedLoad ? "Refresh repositories" : "Load ShrubLibrary Repositories",
+                          systemImage: catalog.hasRequestedLoad ? "arrow.clockwise" : "square.and.arrow.down.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .controlSize(.large)
+                .accessibilityHint("Loads repositories from ShrubLibrary when you choose")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func catalogAppRow(_ entry: ShrubCatalogEntry) -> some View {
@@ -208,7 +248,14 @@ struct ShrubCatalogView: View {
 
     private var repositoryList: some View {
         List {
+            Section { catalogLoadingControl }
             Section("ShrubLibrary · \(catalog.directory.count) sources") {
+                if !catalog.errors.isEmpty || catalog.directoryError != nil {
+                    Button { showingFailures = true } label: {
+                        Label("Review \(catalog.errors.count) repository issues", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                }
                 ForEach(catalog.directory.filter { url in
                     searchText.isEmpty || (catalog.repositories[url.absoluteString]?.name ?? url.host ?? "").localizedCaseInsensitiveContains(searchText)
                 }, id: \.absoluteString) { url in
@@ -314,7 +361,15 @@ struct ShrubCatalogView: View {
     }
 
     private func runSearch() async {
-        guard scope == 0 else { return }
+        guard scope == 0 else { isSearching = false; return }
+        // Do not start a detached search worker when the app has only just
+        // opened and no repository data has been requested or loaded.
+        if catalog.chunks.isEmpty && customModel.sources.isEmpty {
+            results = []
+            totalMatches = 0
+            isSearching = false
+            return
+        }
         isSearching = true
         if !searchText.isEmpty {
             try? await Task.sleep(nanoseconds: 220_000_000)
