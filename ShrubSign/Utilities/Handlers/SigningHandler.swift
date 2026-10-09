@@ -59,10 +59,10 @@ final class SigningHandler: NSObject {
 			throw SigningFileHandlerError.appNotFound
 		}
 		
+		let infoPlistURL = movedAppPath.appendingPathComponent("Info.plist")
 		guard
-			let infoDictionary = NSDictionary(
-				contentsOf: movedAppPath.appendingPathComponent("Info.plist")
-			)!.mutableCopy() as? NSMutableDictionary
+			let originalInfoDictionary = NSDictionary(contentsOf: infoPlistURL),
+			let infoDictionary = originalInfoDictionary.mutableCopy() as? NSMutableDictionary
 		else {
 			throw SigningFileHandlerError.infoPlistNotFound
 		}
@@ -88,18 +88,14 @@ final class SigningHandler: NSObject {
         try await _removeCodeSignature(for: movedAppPath)
 		try await _removeProvisioning(for: movedAppPath)
 		
-        try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
+        // Inject tweaks exactly once. Older builds could run the same pass
+        // multiple times, which was slower and could duplicate Mach-O load commands.
+        if _options.experiment_replaceSubstrateWithEllekit || !_options.injectionFiles.isEmpty {
+            try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
+        }
         
         if _options.experiment_supportLiquidGlass {
             try await _locateMachosAndChangeToSDK26(for: movedAppPath)
-        }
-        
-        if _options.experiment_replaceSubstrateWithEllekit {
-            try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
-        } else {
-            if !_options.injectionFiles.isEmpty {
-                try await _inject(for: movedAppPath, with: _options.injectionFiles, with: _options)
-            }
         }
         
         if #available(iOS 19, *) {
@@ -110,22 +106,23 @@ final class SigningHandler: NSObject {
         try await handler.disinject()
 		
 		if !_options.onlyModify {
-			let handler = ZsignHandler(appUrl: movedAppPath, options: _options, cert: appCertificate)
-			
 			if _options.doAdhocSigning {
 				try await handler.adhocSign()
-			} else if (appCertificate != nil) {
+			} else if appCertificate != nil {
 				try await handler.sign()
 			} else {
 				throw SigningFileHandlerError.missingCertifcate
 			}
+
+            // The old code accidentally checked a different ZsignHandler instance,
+            // so signing errors could be ignored and a broken result could be saved.
+            if let error = handler.hadError {
+                throw error
+            }
 		}
+
         try await self.move()
         try await self.addToDatabase()
-
-        if let error = handler.hadError {
-            throw error
-        }
 	}
 	
 	func move() async throws {

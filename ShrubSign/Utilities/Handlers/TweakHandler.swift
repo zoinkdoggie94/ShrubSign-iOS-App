@@ -69,8 +69,9 @@ class TweakHandler {
 		let frameworksDir = _app.appendingPathComponent("Frameworks")
 		try _fileManager.createDirectoryIfNeeded(at: frameworksDir)
 		
-		let baseTmpDir = _fileManager.temporaryDirectory.appendingPathComponent("FeatherTweak_\(UUID().uuidString)")
+		let baseTmpDir = _fileManager.temporaryDirectory.appendingPathComponent("ShrubSignTweak_\(UUID().uuidString)")
 		try _fileManager.createDirectoryIfNeeded(at: baseTmpDir)
+        defer { try? _fileManager.removeItem(at: baseTmpDir) }
 		
 		// check for appropriate files, if theres debs
 		// it will extract then add a url, if theres no url, i.e.
@@ -151,7 +152,7 @@ class TweakHandler {
 		}
 		
 		guard let appexe = Bundle(url: _app)?.executableURL else {
-			return
+            throw TweakHandlerError.missingFile("Main app executable")
 		}
 		
 		// change paths because some tweaks hardlink, which is not ideal.
@@ -163,13 +164,20 @@ class TweakHandler {
 			for: "/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
 			with: "@rpath/CydiaSubstrate.framework/CydiaSubstrate"
 		)
-		// inject if there's a valid app main executable
-		_ = Zsign.injectDyLib(
+		// Inject only after the file is safely in place, and report a real error
+        // if the Mach-O load command could not be added.
+        let injectionPath = "\(_options.injectPath.rawValue)\(injectFolder.rawValue)\(destinationURL.lastPathComponent)"
+		let injected = Zsign.injectDyLib(
 			appExecutable: appexe.path,
-			with: "\(_options.injectPath.rawValue)\(injectFolder.rawValue)\(destinationURL.lastPathComponent)"
+			with: injectionPath
 		)
+        guard injected else {
+            throw TweakHandlerError.injectionFailed(destinationURL.lastPathComponent)
+        }
 
-		_injectedDylibNames.append(destinationURL.lastPathComponent)
+        if !_injectedDylibNames.contains(destinationURL.lastPathComponent) {
+            _injectedDylibNames.append(destinationURL.lastPathComponent)
+        }
 	}
 	
 	// Extracy imported deb file
@@ -208,8 +216,7 @@ class TweakHandler {
 			let fexe = Bundle(url: destinationURL)?.executableURL,
 			let appexe = Bundle(url: _app)?.executableURL
 		else {
-			print("Error: Could not find executable in framework or app bundle")
-			return
+            throw TweakHandlerError.missingFile("Executable for \(destinationURL.lastPathComponent)")
 		}
 		
 		// change paths because some tweaks hardlink, which is not ideal.
@@ -228,7 +235,9 @@ class TweakHandler {
 			appExecutable: appexe.path,
 			with: "@executable_path/Frameworks/\(destinationURL.lastPathComponent)/\(fexe.lastPathComponent)"
 		)
-		print("Inject result for \(destinationURL.lastPathComponent): \(injectResult)")
+        guard injectResult else {
+            throw TweakHandlerError.injectionFailed(destinationURL.lastPathComponent)
+        }
 	}
 
 	private func _handleBundle(at url: URL) async throws {
@@ -420,9 +429,25 @@ extension TweakHandler {
 	}
 }
 
-enum TweakHandlerError: Error {
+enum TweakHandlerError: Error, LocalizedError {
 	case unsupportedFileExtension(String)
 	case decompressionFailed(String)
 	case missingFile(String)
+    case injectionFailed(String)
 	case noAccess
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedFileExtension(let value):
+            return "Unsupported tweak file: \(value)"
+        case .decompressionFailed(let value):
+            return "Could not extract tweak package: \(value)"
+        case .missingFile(let value):
+            return "Required tweak file is missing: \(value)"
+        case .injectionFailed(let value):
+            return "Could not inject \(value) into the app executable."
+        case .noAccess:
+            return "ShrubSign could not access the selected tweak file."
+        }
+    }
 }

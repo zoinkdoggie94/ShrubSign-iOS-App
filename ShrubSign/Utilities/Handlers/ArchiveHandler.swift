@@ -71,17 +71,19 @@ final class ArchiveHandler: NSObject {
 	}
 	
 	func moveToArchive(_ package: URL, shouldOpen: Bool = false) async throws -> URL? {
-		let appendingString = "\(_app.name!)_\(_app.version!)_\(Int(Date().timeIntervalSince1970)).ipa"
+		let rawName = (_app.name?.isEmpty == false ? _app.name : nil) ?? "ShrubSignApp"
+		let rawVersion = (_app.version?.isEmpty == false ? _app.version : nil) ?? "UnknownVersion"
+		let invalidFilenameCharacters = CharacterSet(charactersIn: "/\\:?%*|\"<>")
+		let safeName = rawName.components(separatedBy: invalidFilenameCharacters).joined(separator: "_")
+		let safeVersion = rawVersion.components(separatedBy: invalidFilenameCharacters).joined(separator: "_")
+		let appendingString = "\(safeName)_\(safeVersion)_\(Int(Date().timeIntervalSince1970)).ipa"
 		let dest = _fileManager.archives.appendingPathComponent(appendingString)
 		
-		try? _fileManager.moveItem(
-			at: package,
-			to: dest
-		)
+		try _fileManager.moveItem(at: package, to: dest)
 		
-		if shouldOpen {
+		if shouldOpen, let sharedURL = FileManager.default.archives.toSharedDocumentsURL() {
 			await MainActor.run {
-				UIApplication.open(FileManager.default.archives.toSharedDocumentsURL()!)
+				UIApplication.open(sharedURL)
 			}
 		}
 		

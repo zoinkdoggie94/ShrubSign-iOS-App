@@ -1,9 +1,9 @@
-// ShrubSign 2.3.1 · Explicit catalog loading; avoid decoding the entire cache on first tab display.
+// ShrubSign 3.0 · Explicit catalog loading; avoid decoding the entire cache on first tab display.
 import Foundation
 import SwiftUI
 import AltSourceKit
 
-struct ShrubCatalogEntry: Identifiable, Sendable {
+struct ShrubCatalogEntry: Identifiable, @unchecked Sendable {
     let id: String
     let sourceURL: URL
     let sourceName: String
@@ -11,7 +11,7 @@ struct ShrubCatalogEntry: Identifiable, Sendable {
     let app: ASRepository.App
 }
 
-struct ShrubCatalogResult: Sendable {
+struct ShrubCatalogResult: @unchecked Sendable {
     let sourceURL: URL
     let repository: ASRepository?
     let message: String?
@@ -49,6 +49,7 @@ final class ShrubCatalogModel: ObservableObject {
     @Published private(set) var cachedFallbacks: Set<String> = []
     @Published private(set) var checkedCount = 0
     @Published private(set) var isLoading = false
+    @Published private(set) var isRestoringCache = false
     @Published private(set) var hasRequestedLoad = false
     @Published private(set) var directoryError: String?
     @Published private(set) var revision = 0
@@ -59,6 +60,7 @@ final class ShrubCatalogModel: ObservableObject {
     @Published private(set) var currentSourceName: String?
 
     private var loadedCache = false
+    private var restoredRepositoryCache = false
     private var isPreparingLoad = false
     private static let proxyBase = URL(string: "https://shrublibrary.pages.dev/proxy")!
     private var revisionWorkItem: DispatchWorkItem?
@@ -72,11 +74,46 @@ final class ShrubCatalogModel: ObservableObject {
         if attemptTimestamp > 0 { lastAttempt = Date(timeIntervalSince1970: attemptTimestamp) }
     }
 
+    // Restore the previous catalog without touching the network. Repositories are
+    // decoded one at a time off the UI actor so relaunching ShrubSign does not
+    // require re-downloading every source or create a large first-open memory spike.
+    @MainActor
+    func restoreCachedCatalog() async {
+        guard !restoredRepositoryCache, !isLoading, !isRestoringCache else { return }
+        restoredRepositoryCache = true
+        await loadCacheDirectoryOnce()
+        guard !directory.isEmpty else { return }
+
+        isRestoringCache = true
+        defer {
+            isRestoringCache = false
+            publishRevisionSoon()
+        }
+
+        var restoredAny = false
+        for (index, url) in directory.enumerated() {
+            if Task.isCancelled { break }
+            let result = await Task.detached(priority: .utility) {
+                Self.cachedRepository(at: url)
+            }.value
+            if let repo = result.repository {
+                restoredAny = true
+                accept(repo, from: url, entries: result.entries)
+                cachedFallbacks.insert(url.absoluteString)
+            }
+            if index % 3 == 0 {
+                publishRevisionSoon()
+                await Task.yield()
+            }
+        }
+        if restoredAny { hasRequestedLoad = true }
+    }
+
     // Called exclusively by a user action. Merely opening the ShrubLibrary tab
     // must not begin network requests or decode thousands of cached app models.
     @MainActor
     func refresh() async {
-        guard !isPreparingLoad && !isLoading else { return }
+        guard !isPreparingLoad && !isLoading && !isRestoringCache else { return }
         isPreparingLoad = true
         hasRequestedLoad = true
         defer { isPreparingLoad = false }
@@ -351,7 +388,7 @@ final class ShrubCatalogModel: ObservableObject {
         request.timeoutInterval = 35
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json,text/plain;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
-        request.setValue("ShrubSign/2.3 (iOS; repository client)", forHTTPHeaderField: "User-Agent")
+        request.setValue("ShrubSign/3.0 (iOS; repository client)", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
         try checkHTTP(response, data: data, maximum: 100_000_000)
         return data

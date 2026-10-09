@@ -34,7 +34,7 @@ struct InstallPreviewView: View {
         let method = UserDefaults.standard.integer(forKey: "Feather.installationMethod")
 		let viewModel = InstallerStatusViewModel(isIdevice: method == 1)
 		self._viewModel = StateObject(wrappedValue: viewModel)
-		self._installer = StateObject(wrappedValue: try! ServerInstaller(app: app, viewModel: viewModel))
+		self._installer = StateObject(wrappedValue: ServerInstaller(app: app, viewModel: viewModel))
 	}
 	
 	// MARK: Body
@@ -50,7 +50,11 @@ struct InstallPreviewView: View {
 		.onReceive(viewModel.$status) { newStatus in
 			if case .ready = newStatus {
 				if _serverMethod == 0 {
-					UIApplication.shared.open(URL(string: installer.iTunesLink)!)
+					if let url = URL(string: installer.iTunesLink) {
+                        UIApplication.shared.open(url)
+                    } else {
+                        viewModel.status = .broken(URLError(.badURL))
+                    }
 				} else if _serverMethod == 1 {
 					_isWebviewPresenting = true
 				}
@@ -58,10 +62,18 @@ struct InstallPreviewView: View {
             
             if case .installing = newStatus {
                 if progressTask == nil {
-                    progressTask = startInstallProgressPolling(
-                        bundleID: app.identifier!,
-                        viewModel: viewModel
-                    )
+                    if let bundleID = app.identifier, !bundleID.isEmpty {
+                        progressTask = startInstallProgressPolling(
+                            bundleID: bundleID,
+                            viewModel: viewModel
+                        )
+                    } else {
+                        viewModel.status = .broken(NSError(
+                            domain: "ShrubSign.Install",
+                            code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: "This app does not have a valid bundle identifier."]
+                        ))
+                    }
                 }
             }
 			
@@ -99,7 +111,8 @@ struct InstallPreviewView: View {
 	}
 	
 	private func _install() {
-        guard isSharing || app.identifier != Bundle.main.bundleIdentifier! || _installationMethod == 1 else {
+        let ownBundleID = Bundle.main.bundleIdentifier
+        guard isSharing || app.identifier != ownBundleID || _installationMethod == 1 else {
             UIAlertController.showAlertWithOk(
                 title: .localized("Install"),
                 message: .localized("You cannot update ‘%@‘ with itself, please use an alternative tool to update it.", arguments: Bundle.main.name)
@@ -121,20 +134,10 @@ struct InstallPreviewView: View {
                             viewModel.status = .ready
                         }
                         
-                        if case .installing = await viewModel.status {
-                            let task = await startInstallProgressPolling(
-                                bundleID: app.identifier!,
-                                viewModel: viewModel
-                            )
-
-                            await MainActor.run {
-                                progressTask = task
-                            }
-                        }
                     }
                     else if await _installationMethod == 1 {
                         let handler = await InstallationProxy(viewModel: viewModel)
-                        try await handler.install(at: packageUrl, suspend: app.identifier == Bundle.main.bundleIdentifier!)
+                        try await handler.install(at: packageUrl, suspend: app.identifier == Bundle.main.bundleIdentifier)
                     }
 				} else {
 					let package = try await handler.moveToArchive(packageUrl, shouldOpen: !_useShareSheet)
@@ -201,7 +204,7 @@ struct InstallPreviewView: View {
                         break
                     }
 
-                    try? await Task.sleep(nanoseconds: 1_000_000) // 1 ms
+                    try? await Task.sleep(nanoseconds: 250_000_000) // 250 ms; avoids a CPU-heavy 1 ms polling loop
                 }
             }
         }

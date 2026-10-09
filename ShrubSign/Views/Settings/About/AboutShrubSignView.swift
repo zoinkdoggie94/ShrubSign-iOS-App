@@ -87,7 +87,7 @@ struct AboutShrubSignView: View {
 	private func _showPatchNotes() {
 		UIAlertController.showAlertWithOk(
 			title: "ShrubSign \(Bundle.main.version)",
-			message: "ShrubSign 2 adds a native Home dashboard, IPA import shortcuts, repository discovery, certificate expiration reminders, and a GitHub beta update checker. Existing repository browsing, batch signing, and file management remain available.",
+			message: "ShrubSign 3.0 focuses on reliability and speed: safer repository browsing, persistent ShrubLibrary cache restoration, single-pass tweak injection, clearer signing failures, more reliable installation handling, richer certificate details, UI polish, and release builds that keep older IPAs available.",
 			isCancel: true,
 			thankYou: true
 		)

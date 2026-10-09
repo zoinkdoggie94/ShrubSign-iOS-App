@@ -49,16 +49,19 @@ struct SourceAppsView: View {
             return .localized("%lld Sources", arguments: object.count)
         }
     }
+
+    private var _sourceError: String? {
+        for source in object {
+            guard let key = source.sourceURL?.absoluteString else { continue }
+            if let message = viewModel.sourceErrors[key] { return message }
+        }
+        return nil
+    }
     
     var object: [AltSource]
     @ObservedObject var viewModel: SourcesViewModel
     @State private var _sources: [ASRepository]?
     
-    @FetchRequest(
-        entity: AltSource.entity(),
-        sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)],
-        animation: .snappy
-    ) private var _allSources: FetchedResults<AltSource>
     
     // MARK: Body
     var body: some View {
@@ -77,11 +80,23 @@ struct SourceAppsView: View {
                 .ignoresSafeArea()
             } else {
                 if #available(iOS 17, *) {
-                    ContentUnavailableView {
-                        ProgressView()
-                        Label(.localized("Fetching..."), systemImage: "")
-                    } description: {
-                        Text(.localized("Stuck? Check if you have any sources added."))
+                    if isLoading || !hasLoadedOnce {
+                        ContentUnavailableView {
+                            ProgressView()
+                            Label(.localized("Loading Repository"), systemImage: "")
+                        } description: {
+                            Text("Fetching only the repository you opened.")
+                        }
+                    } else {
+                        ContentUnavailableView {
+                            Label("Repository unavailable", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(_sourceError ?? "This repository did not return any compatible app data.")
+                        } actions: {
+                            Button("Try Again", systemImage: "arrow.clockwise") {
+                                Task { await viewModel.fetchSources(object, refresh: true); _load() }
+                            }
+                        }
                     }
                 }
                 else { ProgressView() }
@@ -110,8 +125,8 @@ struct SourceAppsView: View {
             Divider()
             
             Button(.localized("Copy"), systemImage: "doc.on.doc") {
-                UIPasteboard.general.string = object.map {
-                    $0.sourceURL!.absoluteString
+                UIPasteboard.general.string = object.compactMap {
+                    $0.sourceURL?.absoluteString
                 }.joined(separator: "\n")
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
@@ -133,7 +148,7 @@ struct SourceAppsView: View {
                 placement: .topBarTrailing
             ) {
                 Task {
-                    await viewModel.fetchSources(_allSources, refresh: true)
+                    await viewModel.fetchSources(object, refresh: true)
                 }
             }
             
@@ -149,9 +164,10 @@ struct SourceAppsView: View {
             _sortOption = SortOption(rawValue: _sortOptionRawValue) ?? .default
         }
         .task(id: object.map { $0.objectID.uriRepresentation().absoluteString }.joined(separator: "|")) {
-            // Load repositories only when this browser is actually opened. This keeps
-            // Home fast while still making direct navigation from Home reliable.
-            await viewModel.fetchSources(_allSources)
+            // Load only the repository (or repositories) represented by this screen.
+            // Older builds refreshed every saved source when opening a single repo,
+            // which caused unnecessary network work and could crash on iPad.
+            await viewModel.fetchSources(object)
             _load()
             hasLoadedOnce = true
         }

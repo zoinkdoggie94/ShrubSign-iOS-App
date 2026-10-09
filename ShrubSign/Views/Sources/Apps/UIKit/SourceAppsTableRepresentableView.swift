@@ -197,6 +197,24 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
         uiTableView?.reloadData()
     }
     
+    private func entry(at indexPath: IndexPath) -> (source: ASRepository, app: ASRepository.App)? {
+        switch sortOption {
+        case .default:
+            guard _sortedApps.indices.contains(indexPath.row) else { return nil }
+            return _sortedApps[indexPath.row]
+        case .name:
+            guard _sortedSectionTitles.indices.contains(indexPath.section) else { return nil }
+            let key = _sortedSectionTitles[indexPath.section]
+            guard let rows = _groupedAppsByNameFirstLetter[key], rows.indices.contains(indexPath.row) else { return nil }
+            return rows[indexPath.row]
+        case .date:
+            guard _sortedSectionTitles.indices.contains(indexPath.section) else { return nil }
+            let key = _sortedSectionTitles[indexPath.section]
+            guard let rows = _groupedAppsByDate[key], rows.indices.contains(indexPath.row) else { return nil }
+            return rows[indexPath.row]
+        }
+    }
+
     // MARK: TableView
     
     func numberOfSections(in tableView: UITableView) -> Int {
@@ -208,19 +226,22 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch sortOption {
-        case .default: _sortedApps.count
-        case .name: _groupedAppsByNameFirstLetter[_sortedSectionTitles[section]]?.count ?? 0
-        case .date: _groupedAppsByDate[_sortedSectionTitles[section]]?.count ?? 0
+        case .default:
+            return _sortedApps.count
+        case .name:
+            guard _sortedSectionTitles.indices.contains(section) else { return 0 }
+            return _groupedAppsByNameFirstLetter[_sortedSectionTitles[section]]?.count ?? 0
+        case .date:
+            guard _sortedSectionTitles.indices.contains(section) else { return 0 }
+            return _groupedAppsByDate[_sortedSectionTitles[section]]?.count ?? 0
         }
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "AppCell", for: indexPath)
-        let entry: (source: ASRepository, app: ASRepository.App)
-        switch sortOption {
-        case .default: entry = _sortedApps[indexPath.row]
-        case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
-        case .date: entry = _groupedAppsByDate[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
+        guard let entry = entry(at: indexPath) else {
+            cell.contentConfiguration = UIHostingConfiguration { EmptyView() }
+            return cell
         }
 
         cell.contentConfiguration = UIHostingConfiguration {
@@ -233,12 +254,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
         if #available(iOS 17, *) {
             tableView.deselectRow(at: indexPath, animated: true)
             
-            let entry: (source: ASRepository, app: ASRepository.App)
-            switch sortOption {
-            case .default: entry = _sortedApps[indexPath.row]
-            case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
-            case .date: entry = _groupedAppsByDate[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
-            }
+            guard let entry = entry(at: indexPath) else { return }
             
             onSelect(SourceAppsView.SourceAppRoute(source: entry.source, app: entry.app))
         }
@@ -249,8 +265,11 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
         let title: String
         
         switch sortOption {
-        case .default: title = .localized("%lld Apps", arguments: _sortedApps.count)
-        case .name, .date: title = _sortedSectionTitles[section]
+        case .default:
+            title = .localized("%lld Apps", arguments: _sortedApps.count)
+        case .name, .date:
+            guard _sortedSectionTitles.indices.contains(section) else { return nil }
+            title = _sortedSectionTitles[section]
         }
         
         headerView?.contentConfiguration = UIHostingConfiguration {
@@ -274,12 +293,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
     }
     
     func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-        let entry: (source: ASRepository, app: ASRepository.App)
-        switch sortOption {
-        case .default: entry = _sortedApps[indexPath.row]
-        case .name: entry = _groupedAppsByNameFirstLetter[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
-        case .date: entry = _groupedAppsByDate[_sortedSectionTitles[indexPath.section]]?[indexPath.row] ?? _sortedApps[indexPath.row]
-        }
+        guard let entry = entry(at: indexPath) else { return nil }
         
         return UIContextMenuConfiguration(
             identifier: nil,

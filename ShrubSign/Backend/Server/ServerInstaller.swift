@@ -17,22 +17,43 @@ import IDeviceSwift
 // MARK: - Class
 class ServerInstaller: Identifiable, ObservableObject {
 	let id = UUID()
-	let port = Int.random(in: 4000...8000)
+	private(set) var port = Int.random(in: 4000...8000)
 	private var _needsShutdown = false
 	
 	var packageUrl: URL?
 	var app: AppInfoPresentable
 	@ObservedObject var viewModel: InstallerStatusViewModel
-	private let _server: Application
+	private var _server: Application?
 
-	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) throws {
+	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) {
 		self.app = app
 		self.viewModel = viewModel
-		self._server = try Self.setupApp(port: port)
-		
-		try _configureRoutes()
-		try _server.server.start()
-		_needsShutdown = true
+
+        var lastError: Error?
+        // Local server ports can occasionally already be occupied. Retry a few
+        // times instead of crashing or making the user retry the whole install.
+        for _ in 0..<5 {
+            port = Int.random(in: 4000...8000)
+            do {
+                let server = try Self.setupApp(port: port)
+                self._server = server
+                try _configureRoutes()
+                try server.server.start()
+                _needsShutdown = true
+                return
+            } catch {
+                lastError = error
+                if let server = self._server {
+                    server.server.shutdown()
+                    server.shutdown()
+                }
+                self._server = nil
+            }
+        }
+
+        DispatchQueue.main.async {
+            viewModel.status = .broken(lastError ?? URLError(.cannotConnectToHost))
+        }
 	}
 	
 	deinit {
@@ -40,7 +61,8 @@ class ServerInstaller: Identifiable, ObservableObject {
 	}
 		
 	private func _configureRoutes() throws {
-		_server.get("*") { [weak self] req in
+        guard let server = _server else { return }
+		server.get("*") { [weak self] req in
 			guard let self else { return Response(status: .badGateway) }
 			switch req.url.path {
 			case plistEndpoint.path:
@@ -87,8 +109,10 @@ class ServerInstaller: Identifiable, ObservableObject {
 		guard _needsShutdown else { return }
 		
 		_needsShutdown = false
-		_server.server.shutdown()
-		_server.shutdown()
+        guard let server = _server else { return }
+		server.server.shutdown()
+		server.shutdown()
+        _server = nil
 	}
 	
     private func _updateStatus(_ newStatus: InstallerStatusViewModel.InstallerStatus) {

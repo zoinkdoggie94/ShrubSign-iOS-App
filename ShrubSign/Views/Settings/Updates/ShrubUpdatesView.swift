@@ -33,7 +33,7 @@ final class ShrubReleaseChecker: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let url = URL(string: "https://api.github.com/repos/zoinkdoggie94/ShrubSign-iOS-App/releases/tags/beta")!
+            let url = URL(string: "https://api.github.com/repos/zoinkdoggie94/ShrubSign-iOS-App/releases/latest")!
             var request = URLRequest(url: url)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("ShrubSign-iOS", forHTTPHeaderField: "User-Agent")
@@ -44,7 +44,7 @@ final class ShrubReleaseChecker: ObservableObject {
             }
             guard response.statusCode == 200 else {
                 if response.statusCode == 404 {
-                    throw ReleaseError.message("No beta release has been published yet.")
+                    throw ReleaseError.message("No ShrubSign release has been published yet.")
                 }
                 throw ReleaseError.message("GitHub returned HTTP \(response.statusCode). Try again later.")
             }
@@ -74,7 +74,7 @@ struct ShrubUpdatesView: View {
                     LabeledContent("Build", value: String(checker.installedCommit.prefix(12)))
                 }
             }
-            Section("GitHub beta") {
+            Section("Latest GitHub release") {
                 if checker.isLoading { ProgressView("Checking GitHub…") }
                 if let release = checker.release {
                     LabeledContent("Release", value: release.name ?? release.tag_name)
@@ -82,7 +82,7 @@ struct ShrubUpdatesView: View {
                         LabeledContent("Published") { Text(published, style: .date) }
                     }
                     if let current = checker.isCurrentBuild {
-                        Label(current ? "This is the published beta build." : "GitHub has a different beta build available.",
+                        Label(current ? "This is the latest published build." : "A newer or different ShrubSign build is available.",
                               systemImage: current ? "checkmark.circle.fill" : "arrow.down.circle.fill")
                             .foregroundStyle(current ? .green : .orange)
                     } else {

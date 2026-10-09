@@ -96,8 +96,5 @@ struct SourcesView: View {
 				await viewModel.fetchSources(_sources, refresh: true)
 			}
 		}
-		.task(id: _sources.map { $0.objectID.uriRepresentation().absoluteString }.joined(separator: "|")) {
-			await viewModel.fetchSources(_sources)
-		}
 	}
 }

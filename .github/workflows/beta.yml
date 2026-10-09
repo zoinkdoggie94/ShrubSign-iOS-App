@@ -1,4 +1,4 @@
-name: Beta Build
+name: ShrubSign Release
 
 on:
   push:
@@ -9,12 +9,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: shrubsign-beta-release
+  group: shrubsign-release
   cancel-in-progress: false
 
 jobs:
   build:
-    name: Build Beta
+    name: Build & Release
     runs-on: macos-26
 
     steps:
@@ -62,40 +62,32 @@ jobs:
           zipinfo -1 packages/ShrubSign.ipa | grep -Fxq 'Payload/ShrubSign.app/ShrubSign'
           echo "ShrubSign IPA passed archive and bundle validation."
 
-      - name: Update Beta Release
+      - name: Publish Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          LATEST_OFFICIAL_TAG=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null || echo "")
+          set -euo pipefail
+          VERSION=$(grep -m1 'MARKETING_VERSION = ' ShrubSign.xcodeproj/project.pbxproj | sed -E 's/.*= ([^;]+);/\1/')
+          TAG="v${VERSION}-build-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          echo "## Commit: \`$COMMIT_MSG\` (${{ github.sha }})" >> release_notes.md
-          echo "### New in this build (Compared to $LATEST_OFFICIAL_TAG):" >> release_notes.md
-            
-          if [ -n "$LATEST_OFFICIAL_TAG" ]; then
-            CHANGES=$(git log --pretty=format:"* %s (%h)" "${LATEST_OFFICIAL_TAG}..HEAD")
-          else
-            CHANGES=$(git log -n 20 --pretty=format:"* %s (%h)")
-          fi
-            
-          if [ -z "$CHANGES" ]; then
-            echo "* No code changes since $LATEST_OFFICIAL_TAG" >> release_notes.md
-          else
-            echo "$CHANGES" >> release_notes.md
-          fi
-          
-          echo "### Commit SHA: ${{ github.sha }}" >> release_notes.md
-          
-          cat release_notes.md
 
-          if gh release view beta >/dev/null 2>&1; then
-            gh release delete beta --cleanup-tag -y
-          fi
-          
-          gh release create beta "packages/ShrubSign.ipa" \
-            --title "ShrubSign Beta" \
-            --notes "$(cat release_notes.md)" \
-            --prerelease \
-            --target ${{ github.sha }}
+          echo "## ShrubSign ${VERSION}" > release_notes.md
+          echo "" >> release_notes.md
+          echo "Commit: \`${COMMIT_MSG}\` (${{ github.sha }})" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "This release keeps older ShrubSign releases and IPA assets available." >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Recent changes" >> release_notes.md
+          git log -n 20 --pretty=format:'* %s (%h)' >> release_notes.md
+          echo "" >> release_notes.md
+
+          gh release create "$TAG" "packages/ShrubSign.ipa" \
+            --title "ShrubSign ${VERSION} · Build ${GITHUB_RUN_NUMBER}" \
+            --notes-file release_notes.md \
+            --target "${{ github.sha }}" \
+            --latest
+
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
 
       - name: Notify Discord
         continue-on-error: true
@@ -109,7 +101,7 @@ jobs:
           COMMIT_MSG=$(git log -1 --pretty=%B)
           
           REPO="${{ github.repository }}"
-          TAG="beta"
+          TAG="${RELEASE_TAG:-latest}"
           FILENAME="ShrubSign.ipa"
           
           DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$FILENAME"
@@ -121,7 +113,7 @@ jobs:
             --arg commit_msg "$COMMIT_MSG" \
             --arg download_url "$DOWNLOAD_URL" \
             --arg release_url "$RELEASE_URL" \
-            '{content: "**New ShrubSign Beta Released!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
+            '{content: "**New ShrubSign Release!**\n\nChanges: `\($commit_msg)`\n\n[**Download IPA**](\($download_url))\n[View Release](\($release_url))"}' > discord_payload.json
 
           curl --fail-with-body --silent --show-error \
             -H "Content-Type: application/json" \

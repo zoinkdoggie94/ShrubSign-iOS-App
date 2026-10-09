@@ -1,4 +1,4 @@
-// ShrubSign 2.3: Convert nonstandard optional AltStore metadata to a form the
+// ShrubSign 3.0: Convert nonstandard optional AltStore metadata to a form the
 // existing repository model can decode. No download URL or source identity is
 // fabricated. This runs off the main UI thread with the catalog's fetch task.
 import Foundation

@@ -47,18 +47,32 @@ struct CertificatesInfoView: View {
 extension CertificatesInfoView {
 	@ViewBuilder
 	private func _infoSection(data: Certificate) -> some View {
-		NBSection(.localized("Info")) {
+		NBSection(.localized("Profile")) {
 			_info(.localized("Name"), description: data.Name)
 			_info(.localized("AppID Name"), description: data.AppIDName)
 			_info(.localized("Team Name"), description: data.TeamName)
+            _info("Profile UUID", description: data.UUID)
+            _info("Created", description: data.CreationDate.formatted(date: .abbreviated, time: .shortened))
+            _info("Time to live", description: "\(data.TimeToLive) days")
+            _info("Profile version", description: data.Version.description)
+            if let teamID = data.TeamIdentifier.first {
+                _info("Team ID", description: teamID)
+            }
+            if let appIdentifier = data.Entitlements?["application-identifier"]?.value as? String {
+                _info("Application identifier", description: appIdentifier)
+            }
 		}
 		
-		Section {
-			_info(.localized("Expires"), description: data.ExpirationDate.expirationInfo().formatted)
+		NBSection(.localized("Status")) {
+			_info(.localized("Expires"), description: data.ExpirationDate.formatted(date: .abbreviated, time: .shortened))
 				.foregroundStyle(data.ExpirationDate.expirationInfo().color)
-            
+            _info("Validity", description: data.ExpirationDate > Date() ? "Not expired" : "Expired")
+            _info("Distribution", description: _distributionDescription(data))
+            if let devices = data.ProvisionedDevices {
+                _info("Provisioned devices", description: devices.count.formatted())
+            }
             _info("Saved revocation flag", description: cert.revoked ? "Flagged" : "Not flagged")
-            Text("This flag is saved locally; it is not a live Apple certificate status check.")
+            Text("Expiration and the saved flag are local profile information; ShrubSign does not claim a live Apple revocation status check.")
                 .font(.caption).foregroundStyle(.secondary)
             
 			if let ppq = data.PPQCheck {
@@ -66,6 +80,12 @@ extension CertificatesInfoView {
 			}
 		}
 	}
+
+    private func _distributionDescription(_ data: Certificate) -> String {
+        if data.ProvisionsAllDevices == true { return "All devices" }
+        if let devices = data.ProvisionedDevices, !devices.isEmpty { return "Registered devices" }
+        return data.IsXcodeManaged == true ? "Xcode managed" : "Distribution profile"
+    }
 	
 	@ViewBuilder
 	private func _entitlementsSection(data: Certificate) -> some View {
@@ -103,6 +123,8 @@ extension CertificatesInfoView {
 	private func _info(_ title: String, description: String) -> some View {
 		LabeledContent(title) {
 			Text(description)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
 		}
 	}
 	

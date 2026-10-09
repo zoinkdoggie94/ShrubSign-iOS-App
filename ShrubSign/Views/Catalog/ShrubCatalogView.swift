@@ -1,4 +1,4 @@
-// ShrubSign 2.3.1 · Explicit loading, lightweight first launch, clear repository controls.
+// ShrubSign 3.0 · Explicit loading, lightweight first launch, clear repository controls.
 import SwiftUI
 import CoreData
 import AltSourceKit
@@ -44,8 +44,8 @@ struct ShrubCatalogView: View {
             .toolbar {
                 if scope != 2 {
                     ToolbarItem(placement: .topBarTrailing) {
-                        if catalog.isLoading {
-                            ProgressView().accessibilityLabel("Loading ShrubLibrary repositories")
+                        if catalog.isLoading || catalog.isRestoringCache {
+                            ProgressView().accessibilityLabel("Loading ShrubLibrary catalog")
                         } else {
                             Button { Task { await catalog.refresh() } } label: {
                                 Label("Load or refresh repositories", systemImage: "arrow.clockwise")
@@ -64,6 +64,7 @@ struct ShrubCatalogView: View {
                 SourcesAddView().presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showingFailures) { failureSheet }
+            .task { await catalog.restoreCachedCatalog() }
             // Custom repositories are only fetched after choosing Imported;
             // opening the catalog must never start two independent loading jobs.
             .task(id: scope == 2 ? customSources.map { $0.objectID }.description : "not-imported") {
@@ -167,11 +168,21 @@ struct ShrubCatalogView: View {
     // contains a refresh symbol. This makes first-run behavior obvious on iPad.
     private var catalogLoadingControl: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if catalog.isLoading {
+            if catalog.isRestoringCache {
                 HStack(spacing: 10) {
                     ProgressView().tint(.green)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Loading ShrubLibrary").font(.subheadline.weight(.semibold))
+                        Text("Restoring saved ShrubLibrary catalog").font(.subheadline.weight(.semibold))
+                        Text("Using your last successful repository data. No network refresh is running.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else if catalog.isLoading {
+                HStack(spacing: 10) {
+                    ProgressView().tint(.green)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Refreshing ShrubLibrary").font(.subheadline.weight(.semibold))
                         Text(catalog.directory.isEmpty ? "Connecting to the repository directory…" :
                              "Checking \(catalog.checkedCount) of \(catalog.directory.count) repositories")
                             .font(.caption).foregroundStyle(.secondary)

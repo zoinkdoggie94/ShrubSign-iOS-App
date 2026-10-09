@@ -1,8 +1,10 @@
 //
 //  SourcesViewModel.swift
-//  Feather
+//  ShrubSign
 //
-//  Created by samara on 30.04.2025.
+//  Repository loading is intentionally scoped to the repositories the user
+//  actually opens. This avoids the old behavior where opening one repository
+//  could refresh every saved source at once.
 //
 
 import Foundation
@@ -10,76 +12,80 @@ import AltSourceKit
 import SwiftUI
 import NimbleJSON
 
-// MARK: - Class
 final class SourcesViewModel: ObservableObject {
-	static let shared = SourcesViewModel()
-	
-	typealias RepositoryDataHandler = Result<ASRepository, Error>
-	
-	private let _dataService = NBFetchService()
-	
+    static let shared = SourcesViewModel()
+
+    typealias RepositoryDataHandler = Result<ASRepository, Error>
+
+    private struct RepositoryTaskResult: @unchecked Sendable {
+        let offset: Int
+        let repository: ASRepository?
+        let errorMessage: String?
+    }
+
+    private let _dataService = NBFetchService()
+
     @Published var isFinished = true
-	@Published var sources: [AltSource: ASRepository] = [:]
-	
-	func fetchSources(_ sources: FetchedResults<AltSource>, refresh: Bool = false, batchSize: Int = 4) async {
-		guard isFinished else { return }
-		
-		// check if sources to be fetched are the same as before, if yes, return
-		// also skip check if refresh is true
-        if !refresh, sources.count == self.sources.count,
-           sources.allSatisfy({ self.sources[$0] != nil }) { return }
-		
-		// isfinished is used to prevent multiple fetches at the same time
-		isFinished = false
-		defer { isFinished = true }
-		
-        // Keep previously loaded sources visible during refresh; new results replace
-        // individual entries incrementally instead of blanking the entire library.
-        let allowedIDs = Set(sources.map { $0.objectID })
-        await MainActor.run {
-            self.sources = self.sources.filter { allowedIDs.contains($0.key.objectID) }
+    @Published var sources: [AltSource: ASRepository] = [:]
+    @Published private(set) var sourceErrors: [String: String] = [:]
+
+    func fetchSources(_ fetchedSources: FetchedResults<AltSource>, refresh: Bool = false, batchSize: Int = 3) async {
+        await fetchSources(Array(fetchedSources), refresh: refresh, batchSize: batchSize)
+    }
+
+    func fetchSources(_ requestedSources: [AltSource], refresh: Bool = false, batchSize: Int = 3) async {
+        let requested = requestedSources.filter { $0.sourceURL != nil }
+        guard !requested.isEmpty else { return }
+
+        let sourcesToFetch = refresh ? requested : requested.filter { self.sources[$0] == nil }
+        guard !sourcesToFetch.isEmpty else { return }
+
+        await MainActor.run { self.isFinished = false }
+        defer {
+            Task { @MainActor in self.isFinished = true }
         }
-		
-		let sourcesArray = Array(sources)
-		
-		for startIndex in stride(from: 0, to: sourcesArray.count, by: batchSize) {
-			let endIndex = min(startIndex + batchSize, sourcesArray.count)
-			let batch = sourcesArray[startIndex..<endIndex]
-			
-			let batchResults = await withTaskGroup(of: (AltSource, ASRepository?).self, returning: [AltSource: ASRepository].self) { group in
-				for source in batch {
-					group.addTask {
-						guard let url = source.sourceURL else {
-							return (source, nil)
-						}
-						
-						return await withCheckedContinuation { continuation in
-							self._dataService.fetch(from: url) { (result: RepositoryDataHandler) in
-								switch result {
-								case .success(let repo):
-									continuation.resume(returning: (source, repo))
-								case .failure(_):
-									continuation.resume(returning: (source, nil))
-								}
-							}
-						}
-					}
-				}
-				
-				var results = [AltSource: ASRepository]()
-				for await (source, repo) in group {
-					if let repo {
-						results[source] = repo
-					}
-				}
-				return results
-			}
-			
-			await MainActor.run {
-				for (source, repo) in batchResults {
-					self.sources[source] = repo
-				}
-			}
-		}
-	}
+
+        // Fetch a small batch at a time. More concurrency made large source lists
+        // faster on paper, but could spike memory and crash repository navigation.
+        let size = max(1, min(batchSize, 3))
+        for start in stride(from: 0, to: sourcesToFetch.count, by: size) {
+            if Task.isCancelled { break }
+            let end = min(start + size, sourcesToFetch.count)
+            let batch = Array(sourcesToFetch[start..<end])
+
+            await withTaskGroup(of: RepositoryTaskResult.self) { group in
+                for (offset, source) in batch.enumerated() {
+                    guard let url = source.sourceURL else { continue }
+                    group.addTask {
+                        let dataService = NBFetchService()
+                        return await withCheckedContinuation { continuation in
+                            dataService.fetch(from: url) { (result: RepositoryDataHandler) in
+                                switch result {
+                                case .success(let repo):
+                                    continuation.resume(returning: RepositoryTaskResult(offset: offset, repository: repo, errorMessage: nil))
+                                case .failure(let error):
+                                    continuation.resume(returning: RepositoryTaskResult(offset: offset, repository: nil, errorMessage: error.localizedDescription))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for await result in group {
+                    guard batch.indices.contains(result.offset) else { continue }
+                    let source = batch[result.offset]
+                    let key = source.sourceURL?.absoluteString ?? source.identifier ?? UUID().uuidString
+                    await MainActor.run {
+                        if let repo = result.repository {
+                            self.sources[source] = repo
+                            self.sourceErrors.removeValue(forKey: key)
+                        } else if let error = result.errorMessage {
+                            self.sourceErrors[key] = error
+                        }
+                    }
+                }
+            }
+            await Task.yield()
+        }
+    }
 }

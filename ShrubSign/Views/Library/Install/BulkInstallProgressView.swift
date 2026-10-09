@@ -25,7 +25,7 @@ struct BulkInstallProgressView: View {
         let method = UserDefaults.standard.integer(forKey: "Feather.installationMethod")
         let viewModel = InstallerStatusViewModel(isIdevice: method == 1)
         self._viewModel = StateObject(wrappedValue: viewModel)
-        self._installer = StateObject(wrappedValue: try! ServerInstaller(app: app, viewModel: viewModel))
+        self._installer = StateObject(wrappedValue: ServerInstaller(app: app, viewModel: viewModel))
     }
     
     var body: some View {
@@ -38,7 +38,11 @@ struct BulkInstallProgressView: View {
         .onReceive(viewModel.$status) { newStatus in
             if case .ready = newStatus {
                 if _serverMethod == 0 {
-                    UIApplication.shared.open(URL(string: installer.iTunesLink)!)
+                    if let url = URL(string: installer.iTunesLink) {
+                        UIApplication.shared.open(url)
+                    } else {
+                        viewModel.status = .broken(URLError(.badURL))
+                    }
                 } else if _serverMethod == 1 {
                     _isWebviewPresenting = true
                 }
@@ -46,10 +50,18 @@ struct BulkInstallProgressView: View {
             
             if case .installing = newStatus {
                 if progressTask == nil {
-                    progressTask = startInstallProgressPolling(
-                        bundleID: app.identifier!,
-                        viewModel: viewModel
-                    )
+                    if let bundleID = app.identifier, !bundleID.isEmpty {
+                        progressTask = startInstallProgressPolling(
+                            bundleID: bundleID,
+                            viewModel: viewModel
+                        )
+                    } else {
+                        viewModel.status = .broken(NSError(
+                            domain: "ShrubSign.Install",
+                            code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: "This app does not have a valid bundle identifier."]
+                        ))
+                    }
                 }
             }
             
@@ -91,23 +103,14 @@ struct BulkInstallProgressView: View {
                         viewModel.status = .ready
                     }
                     
-                    if case .installing = await viewModel.status {
-                        let task = await startInstallProgressPolling(
-                            bundleID: app.identifier!,
-                            viewModel: viewModel
-                        )
-
-                        await MainActor.run {
-                            progressTask = task
-                        }
-                    }
                 } else if await _installationMethod == 1 {
                     let proxy = await InstallationProxy(viewModel: viewModel)
-                    try await proxy.install(at: packageUrl, suspend: app.identifier == Bundle.main.bundleIdentifier!)
+                    try await proxy.install(at: packageUrl, suspend: app.identifier == Bundle.main.bundleIdentifier)
                 }
                 
             } catch {
                 await MainActor.run {
+                    viewModel.status = .broken(error)
                     HeartbeatManager.shared.start(true)
                 }
             }
@@ -148,7 +151,7 @@ struct BulkInstallProgressView: View {
                     break
                 }
 
-                try? await Task.sleep(nanoseconds: 1_000_000) // 1 ms
+                try? await Task.sleep(nanoseconds: 250_000_000) // 250 ms; avoids a CPU-heavy 1 ms polling loop
             }
         }
     }

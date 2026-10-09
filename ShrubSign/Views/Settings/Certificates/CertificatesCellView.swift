@@ -64,7 +64,7 @@ extension CertificatesCellView {
 		}
         
         if cert.revoked {
-            pills.append(NBPillItem(title: "Revoked", icon: "xmark.octagon", color: .red))
+            pills.append(NBPillItem(title: "Flagged", icon: "xmark.octagon", color: .red))
         }
         else {
             pills.append(NBPillItem(title: "Not flagged revoked", icon: "checkmark.circle", color: .secondary))

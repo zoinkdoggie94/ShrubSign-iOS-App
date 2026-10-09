@@ -1,23 +1,25 @@
-> **ShrubSign 2.3 catalog maintenance:** The native ShrubLibrary catalog now tries direct repository fetches with a fallback to the existing ShrubLibrary /proxy endpoint, normalizes supported inconsistent optional metadata, displays repository icons when available, and uses a more compact progress view. Marketplace-only sources without IPA downloads remain unsupported. Live results depend on source availability and proxy deployment. See `SHRUBSIGN_2_3_NOTES.md`.
-
 <p align="center">
   <img src="https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png" width="160" alt="ShrubSign icon">
 </p>
 
 # ShrubSign
 
-**ShrubSign** is ShrubHub's fork of [Ksign](https://github.com/nyasami/Ksign), an iOS app for signing and managing IPA files on supported devices.
+**Signing is easy with ShrubSign.**
 
-## ShrubSign 2.1 source update
+ShrubSign is ShrubHub's iOS IPA signing and app-management project, based on [Ksign](https://github.com/nyasami/Ksign) and the upstream Feather work it builds upon.
 
-- **Native ShrubLibrary catalog**: reads `https://shrublibrary.pages.dev/repos.txt` only when the catalog is opened, validates and fetches independent repositories with a three-request limit, stores local source caches, reports individual failures, and supports searching while sources load. Repository attribution and duplicate app listings remain separate.
-- **Custom repositories**: the existing custom repository manager and parser are retained; imported sources also appear in the unified catalog without loading an identical directory URL twice.
-- **App details and downloads**: open each app's actual repository metadata, screenshots when provided, version history, and IPA download; the existing import/signing engine is preserved. Download screens now show validation failures and retry controls.
-- **Signing presets**: save, rename, delete, set as default, and apply reusable options from individual or batch signing. Presets reference certificate IDs, never private keys/passwords, and do not copy app-specific names or bundle IDs.
-- **Certificate & IPA details**: searchable/filterable/sortable identities, preferred identity ID persistence, expiration and revocation wording, source links, and extracted app size in the native info screen.
-- **Polish and reliability**: improved screenshot decoding, repository fetch completion, zero/unknown-size progress wording, safer download filenames, ZIP header/HTTP validation, improved mobile layouts, and more useful GitHub build-error logs.
+## ShrubSign 3.0
 
-This is **source code**, not a precompiled or device-verified IPA. Build with GitHub Actions/Xcode, then test on your iPad. Third-party repository listings and IPAs are not verified for safety merely by appearing in the catalog. See [SHRUBSIGN_2_1_NOTES.md](SHRUBSIGN_2_1_NOTES.md) for testing steps and known limits.
+This release focuses on making the app feel dependable rather than simply adding more features:
+
+- **Signing reliability:** duplicate tweak-injection passes were removed and signing errors are now surfaced before a broken result is saved to the library.
+- **Tweak & dylib injection:** dylib/framework injection validates the Mach-O injection result, reports useful failures, avoids duplicate injected names, and cleans temporary extraction data.
+- **Repository stability:** opening one saved repository now fetches only that repository instead of refreshing every source, and the UIKit app table has bounds checks to avoid stale-index crashes while data changes.
+- **ShrubLibrary persistence:** previously cached ShrubLibrary repositories are restored incrementally without re-downloading every source on every launch; network refresh remains user-controlled.
+- **Installation reliability:** install progress no longer polls every millisecond, missing bundle identifiers and malformed install links are handled as errors instead of force-unwrapped crashes, and server-start failures are surfaced in the install UI.
+- **Certificates:** certificate details now show profile UUID, creation and expiration dates, team ID, application identifier, TTL, profile type, provisioned-device count, and accurate local-status wording.
+- **UI polish:** the Home dashboard and catalog loading states are cleaner, long text is handled more safely, and the app uses the ShrubSign motto consistently.
+- **Release history:** GitHub Actions publishes a new uniquely tagged release for each successful build instead of deleting the previous release, so older IPA assets remain available.
 
 ## Building
 
@@ -27,14 +29,14 @@ Clone recursively, then build with Xcode or run:
 make
 ```
 
-The makefile creates `packages/ShrubSign.ipa`. The GitHub Actions beta workflow also publishes `ShrubSign.ipa` when it runs on `main`.
+The makefile creates `packages/ShrubSign.ipa` and validates the IPA archive structure before release.
 
 ## Upstream & credits
 
-ShrubSign is based on **Ksign** by Nyasami/Nagata Asami and contributors. Ksign itself includes or derives work from Feather and other open-source projects; their existing notices and acknowledgements are retained in this repository.
+ShrubSign is based on **Ksign** by Nyasami/Nagata Asami and contributors. Ksign itself includes or derives work from Feather and other open-source projects; their notices and acknowledgements are retained.
 
 Upstream Ksign: https://github.com/nyasami/Ksign
 
 ## License
 
-ShrubSign retains the upstream licensing requirements. See `LICENSE`, `LICENSE_ELLEKIT`, bundled acknowledgement files, and the licenses of included dependencies. Fork branding does not remove or replace upstream copyright/license notices.
+ShrubSign retains the upstream licensing requirements. See `LICENSE`, `LICENSE_ELLEKIT`, bundled acknowledgements, and dependency licenses. Fork branding does not remove or replace upstream copyright or license notices.

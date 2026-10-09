@@ -88,14 +88,32 @@ struct ShrubHomeView: View {
             Image("ShrubHubMark")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-            VStack(alignment: .leading, spacing: 4) {
-                Text("ShrubSign").font(.largeTitle.bold())
-                Text("Sign, manage, and discover apps — without the clutter.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                .frame(width: 66, height: 66)
+                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text("ShrubSign")
+                        .font(.largeTitle.bold())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Text("v\(Bundle.main.version)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary, in: Capsule())
+                }
+                Text("Signing is easy with ShrubSign")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(.primary.opacity(0.06))
         }
         .padding(.top, 12)
     }
@@ -202,10 +220,14 @@ struct ShrubHomeView: View {
 
     private func countTile(_ label: String, count: Int, symbol: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).font(.title3).foregroundStyle(.tint)
+            Image(systemName: symbol)
+                .font(.headline)
+                .foregroundStyle(.tint)
+                .frame(width: 34, height: 34)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(count.formatted()).font(.title2.bold())
-                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(count.formatted()).font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.75)
+                Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -217,11 +239,19 @@ struct ShrubHomeView: View {
     private func actionRow(_ title: String, description: String, icon: String) -> some View {
         HStack(spacing: 13) {
             Image(systemName: icon)
-                .font(.title3).frame(width: 30, height: 32)
+                .font(.headline)
+                .frame(width: 36, height: 36)
                 .foregroundStyle(.tint)
+                .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline).foregroundStyle(.primary)
-                Text(description).font(.caption).foregroundStyle(.secondary)
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)

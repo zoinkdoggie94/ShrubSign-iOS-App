@@ -48,7 +48,7 @@ struct LibraryCellView: View {
 			NBTitleWithSubtitleView(
 				title: app.name ?? .localized("Unknown"),
 				subtitle: _desc,
-				linelimit: 0
+				linelimit: 2
 			)
 			
 			Spacer()
@@ -59,8 +59,10 @@ struct LibraryCellView: View {
 						Image(systemName: "clock")
 							.font(.system(size: 11))
 	                    Text(certInfo.formatted)
-							.font(.system(size: 12))
-							.fontWeight(.semibold)
+                            .font(.system(size: 12))
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
 					}
 					.foregroundColor(.white)
 					.padding(.horizontal, 10)

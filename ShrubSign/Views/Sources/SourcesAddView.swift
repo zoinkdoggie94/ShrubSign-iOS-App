@@ -43,8 +43,8 @@ struct SourcesAddView: View {
 					}
 					
 					Button(.localized("Export"), systemImage: "doc.on.clipboard") {
-						UIPasteboard.general.string = Storage.shared.getSources().map {
-							$0.sourceURL!.absoluteString
+						UIPasteboard.general.string = Storage.shared.getSources().compactMap {
+							$0.sourceURL?.absoluteString
 						}.joined(separator: "\n")
 						UINotificationFeedbackGenerator().notificationOccurred(.success)
 						UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("All sources copied to clipboard."))

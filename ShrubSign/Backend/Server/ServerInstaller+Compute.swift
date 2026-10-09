@@ -39,11 +39,18 @@ extension ServerInstaller {
 	}
 	
 	var externalServerLink: String {
-		let baseUrl = "https://api.palera.in/genPlist?bundleid=\(app.identifier!)&name=\(app.name!)&version=\(app.version!)&fetchurl=\(self.payloadEndpoint.absoluteString)"
-		let encodedBaseUrl = baseUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
-		let finalEncodedUrl = encodedBaseUrl.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
-		
-		return finalEncodedUrl
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "api.palera.in"
+        components.path = "/genPlist"
+        components.queryItems = [
+            URLQueryItem(name: "bundleid", value: app.identifier ?? "com.shrubsign.unknown"),
+            URLQueryItem(name: "name", value: app.name ?? "ShrubSign App"),
+            URLQueryItem(name: "version", value: app.version ?? "1.0"),
+            URLQueryItem(name: "fetchurl", value: payloadEndpoint.absoluteString)
+        ]
+        let baseURL = components.url?.absoluteString ?? "https://api.palera.in/genPlist"
+        return baseURL.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? baseURL
 	}
 
 	var iTunesLink: String {
@@ -90,7 +97,7 @@ extension ServerInstaller {
 			UIColor.accent.setFill()
 			ctx.fill(.init(x: 0, y: 0, width: r, height: r))
 		}
-		return image.pngData()!
+		return image.pngData() ?? Data()
 	}
 
 	var html: String {
@@ -114,10 +121,10 @@ extension ServerInstaller {
 				],
 			],
 			"metadata": [
-				"bundle-identifier": app.identifier,
-				"bundle-version": app.version,
+				"bundle-identifier": app.identifier ?? "com.shrubsign.unknown",
+				"bundle-version": app.version ?? "1.0",
 				"kind": "software",
-				"title": app.name,
+				"title": app.name ?? "ShrubSign App",
 			],
 		],],
 	]}
