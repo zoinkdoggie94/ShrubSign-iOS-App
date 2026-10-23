@@ -137,13 +137,15 @@ struct ShrubQuickRuleEditor: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         Form {
-            Section("For this app") {
+            Section {
                 LabeledContent("Bundle ID", value: bundleID).font(.footnote)
                 Picker("Signing preset", selection: $selected) {
                     Text("Use default preset").tag("")
                     ForEach(presets.presets) { item in Text(item.name).tag(item.id.uuidString) }
                 }
                 Toggle("Install after Quick Sign", isOn: $autoInstall)
+            } header: {
+                Text("For this app")
             } footer: {
                 Text("Quick Sign applies this app's saved preset when available. If no rule is saved, your default signing preset is used.")
             }
