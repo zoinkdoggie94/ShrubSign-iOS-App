@@ -47,7 +47,13 @@ enum FR {
 		certificate: CertificatePair?,
 		completion: @escaping (Error?) -> Void
 	) {
-		Task.detached {
+        let recordID = UUID()
+        let displayName = app.name ?? "Unnamed IPA"
+        let bundleID = app.identifier
+        Task.detached {
+            await MainActor.run {
+                ShrubSigningCenter.shared.begin(id: recordID, name: displayName, bundleID: bundleID)
+            }
 			let handler = SigningHandler(app: app, options: options)
 			if !options.onlyModify {
 				handler.appCertificate = certificate
@@ -59,19 +65,21 @@ enum FR {
 				try await handler.modify()
                 try? await handler.clean()
 				
-				await MainActor.run {
-					completion(nil)
-				}
-			} catch {
-				try? await handler.clean()
-				await MainActor.run {
-					completion(error)
-				}
-			}
-		}
-	}
-	
-	static func handleCertificateFiles(
+                await MainActor.run {
+                    ShrubSigningCenter.shared.finish(id: recordID, error: nil)
+                    completion(nil)
+                }
+            } catch {
+                try? await handler.clean()
+                await MainActor.run {
+                    ShrubSigningCenter.shared.finish(id: recordID, error: error)
+                    completion(error)
+                }
+            }
+        }
+    }
+
+    static func handleCertificateFiles(
 		p12URL: URL,
 		provisionURL: URL,
 		p12Password: String,

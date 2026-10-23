@@ -16,6 +16,7 @@ struct SigningView: View {
 
 	@StateObject private var _optionsManager = OptionsManager.shared
     @StateObject private var presetStore = ShrubSigningPresets.shared
+    @StateObject private var quickRules = ShrubQuickRules.shared
 	
 	@State private var _temporaryOptions: Options = OptionsManager.shared.options
 	@State private var _temporaryCertificate: Int
@@ -67,7 +68,8 @@ struct SigningView: View {
 		NBNavigationView(app.name ?? .localized("Unknown"), displayMode: .inline) {
 			Form {
 				_customizationOptions(for: app)
-				_cert()
+                _cert()
+                quickSignSection
 				_customizationProperties(for: app)
 			}
 			.disabled(_isSigning)
@@ -133,7 +135,8 @@ struct SigningView: View {
                let index = certificates.firstIndex(where: { $0.uuid == savedIdentity }) {
                 _temporaryCertificate = index
             }
-            if let preset = presetStore.preferred {
+            let selectedPreset = currentQuickPreset()
+            if let preset = selectedPreset {
                 if let uuid = preset.certificateUUID,
                    let index = certificates.firstIndex(where: { $0.uuid == uuid }),
                    certificates[index].expiration.map({ $0 > Date() }) ?? false {
@@ -309,7 +312,59 @@ extension SigningView {
 
 // MARK: - Extension: View (import)
 extension SigningView {
-	private func _start() {
+    private func currentQuickPreset() -> ShrubSigningPreset? {
+        if let id = quickRules.rule(for: app.identifier)?.presetID,
+           let configured = presetStore.presets.first(where: { $0.id == id }) {
+            return configured
+        }
+        return presetStore.preferred
+    }
+
+    private func applyQuickPreset() -> Bool {
+        guard let preset = currentQuickPreset() else { return true }
+        if let id = preset.certificateUUID {
+            guard let index = certificates.firstIndex(where: { $0.uuid == id }),
+                  certificates[index].expiration.map({ $0 > Date() }) ?? false else {
+                UIAlertController.showAlertWithOk(title: "Signing identity unavailable",
+                    message: "The saved preset certificate is missing or expired. Choose another certificate before using Quick Sign.")
+                return false
+            }
+            _temporaryCertificate = index
+        }
+        var copy = preset.options
+        copy.injectionFiles = copy.injectionFiles.filter { FileManager.default.fileExists(atPath: $0.path) }
+        copy.appName = _temporaryOptions.appName
+        copy.appIdentifier = _temporaryOptions.appIdentifier
+        copy.appVersion = _temporaryOptions.appVersion
+        _temporaryOptions = copy
+        return true
+    }
+
+    @ViewBuilder
+    private var quickSignSection: some View {
+        NBSection("Quick Sign Pro") {
+            if let identifier = app.identifier, !identifier.isEmpty {
+                NavigationLink {
+                    ShrubQuickRuleEditor(bundleID: identifier)
+                } label: {
+                    Label("Configure this app", systemImage: "slider.horizontal.3")
+                }
+            }
+            Button {
+                if applyQuickPreset() { _start(installAfter: true) }
+            } label: {
+                Label(quickRules.rule(for: app.identifier)?.autoInstall == false ? "Quick Sign" : "Quick Sign & Install",
+                      systemImage: "bolt.shield.fill")
+                    .fontWeight(.semibold)
+            }
+            .disabled(_isSigning)
+            Text("Uses your saved signing preset and certificate. Review Advanced Options for manual changes.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+	private func _start(installAfter: Bool = false) {
+        guard !_isSigning else { return }
 		guard _selectedCert() != nil || _temporaryOptions.doAdhocSigning || _temporaryOptions.onlyModify else {
 			UIAlertController.showAlertWithOk(
 				title: .localized("No Certificate"),
@@ -354,11 +409,12 @@ extension SigningView {
 					Storage.shared.deleteApp(for: app)
 				}
                 
-				if signAndInstall {
+                let rule = quickRules.rule(for: app.identifier)
+                if signAndInstall || (installAfter && (rule?.autoInstall ?? true)) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         NotificationCenter.default.post(
                             name: NSNotification.Name("feather.installApp"),
-                            object: nil
+                            object: _temporaryOptions.appIdentifier ?? app.identifier
                         )
                     }
                 }

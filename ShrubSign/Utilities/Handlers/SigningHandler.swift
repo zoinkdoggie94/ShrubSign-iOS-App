@@ -46,9 +46,7 @@ final class SigningHandler: NSObject {
 		
 		let movedAppURL = _uniqueWorkDir.appendingPathComponent(appUrl.lastPathComponent)
 		
-		print(appUrl)
-		print(movedAppURL)
-		
+        // Avoid logging full app filesystem paths in release builds.
 		try _fileManager.copyItem(at: appUrl, to: movedAppURL)
 		_movedAppPath = movedAppURL
 		print("[\(_uuid)] Moved Payload to: \(movedAppURL.path)")

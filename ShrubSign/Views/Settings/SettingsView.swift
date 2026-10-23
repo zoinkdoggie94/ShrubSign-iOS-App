@@ -72,6 +72,12 @@ struct SettingsView: View {
 					NavigationLink(destination: AppFeaturesView()) {
                         Label(.localized("App Features"), systemImage: "sparkles")
                     }
+                    NavigationLink(destination: ShrubSigningCenterView()) {
+                        Label("Signing & Installation Center", systemImage: "checkmark.circle.badge.clock")
+                    }
+                    NavigationLink(destination: ShrubPresetSettingsView()) {
+                        Label("Quick Sign & Presets", systemImage: "bolt.fill")
+                    }
 					NavigationLink(destination: ConfigurationView()) {
                         Label(.localized("Signing Options"), systemImage: "gear")
                     }
@@ -109,7 +115,10 @@ extension SettingsView {
 			Button("ShrubLibrary", systemImage: "safari") {
 				UIApplication.open("https://shrublibrary.pages.dev")
 			}
-			Button(.localized("GitHub Repository"), systemImage: "safari") {
+			Button("ShrubCerts · Private Certificates", systemImage: "checkmark.shield") {
+                UIApplication.open("https://shrubcerts.pages.dev")
+            }
+            Button(.localized("GitHub Repository"), systemImage: "safari") {
 				UIApplication.open(_githubUrl)
 			}
             Button(.localized("Discord Server"), systemImage: "safari") {

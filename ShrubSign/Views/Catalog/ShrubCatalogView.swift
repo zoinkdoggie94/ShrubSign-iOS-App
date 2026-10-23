@@ -7,6 +7,7 @@ import NukeUI
 struct ShrubCatalogView: View {
     @StateObject private var catalog = ShrubCatalogModel.shared
     @StateObject private var customModel = SourcesViewModel.shared
+    @StateObject private var favorites = ShrubCatalogFavorites.shared
     @FetchRequest(entity: AltSource.entity(), sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)])
     private var customSources: FetchedResults<AltSource>
 
@@ -19,6 +20,7 @@ struct ShrubCatalogView: View {
     @State private var showingAddSource = false
     @State private var showingFailures = false
     @State private var customRevision = 0
+    @State private var favoritesOnly = false
 
     private var revisionKey: String {
         "\(catalog.revision):\(customRevision):\(searchText):\(scope)"
@@ -73,6 +75,11 @@ struct ShrubCatalogView: View {
             }
             .onReceive(customModel.$sources) { _ in customRevision &+= 1 }
             .task(id: revisionKey) { await runSearch() }
+            .onChange(of: catalog.isLoading) { loading in
+                if !loading && catalog.hasRequestedLoad {
+                    favorites.observe(catalog.chunks)
+                }
+            }
         }
     }
 
@@ -133,7 +140,21 @@ struct ShrubCatalogView: View {
                     Label("Downloads & recent imports", systemImage: "square.and.arrow.down")
                 }
             }
-            Section("Apps · \(totalMatches.formatted()) matches") {
+            Section {
+                Toggle("Show only saved apps", isOn: $favoritesOnly)
+                NavigationLink {
+                    ShrubSavedUpdatesView()
+                } label: {
+                    HStack {
+                        Label("Saved Apps & What's New", systemImage: "star.circle.fill")
+                        Spacer()
+                        if !favorites.updates.isEmpty {
+                            Text("\(favorites.updates.count) updates").font(.caption).foregroundStyle(.green)
+                        }
+                    }
+                }
+            }
+            Section("Apps · \(favoritesOnly ? results.filter { favorites.contains($0.app) }.count.formatted() : totalMatches.formatted()) matches") {
                 if results.isEmpty && !isSearching {
                     VStack(alignment: .leading, spacing: 5) {
                         Label("No apps found", systemImage: "magnifyingglass")
@@ -143,11 +164,28 @@ struct ShrubCatalogView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                ForEach(results.prefix(visibleLimit)) { entry in
-                    NavigationLink {
-                        SourceAppsDetailView(source: entry.repository, app: entry.app)
-                    } label: {
-                        catalogAppRow(entry)
+                ForEach(Array((favoritesOnly ? results.filter { favorites.contains($0.app) } : results).prefix(visibleLimit))) { entry in
+                    HStack(spacing: 8) {
+                        NavigationLink {
+                            SourceAppsDetailView(source: entry.repository, app: entry.app)
+                        } label: {
+                            catalogAppRow(entry)
+                        }
+                        Button {
+                            favorites.toggle(entry.app)
+                        } label: {
+                            Image(systemName: favorites.contains(entry.app) ? "star.fill" : "star")
+                                .foregroundStyle(favorites.contains(entry.app) ? Color.orange : Color.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(favorites.contains(entry.app) ? "Remove saved app" : "Save app")
+                        NavigationLink {
+                            ShrubCompareVersionsView(app: entry.app)
+                        } label: {
+                            Image(systemName: "square.stack.3d.up")
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityLabel("Compare available versions")
                     }
                 }
                 if visibleLimit < results.count {

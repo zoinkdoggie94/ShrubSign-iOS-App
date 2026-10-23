@@ -28,6 +28,15 @@ struct LibraryInfoView: View {
 						.frame(maxWidth: .infinity, alignment: .center)
 				}
 				
+                Section {
+                    NavigationLink {
+                        ShrubIPAInspectorView(app: app)
+                    } label: {
+                        Label("IPA Inspector Pro", systemImage: "doc.text.magnifyingglass")
+                    }
+                } footer: {
+                    Text("Inspect executable type, embedded frameworks, extensions and compatibility warnings.")
+                }
                 _infoSection(for: app)
                 Section("ShrubSign file details") {
                     LabeledContent("Status", value: app.isSigned ? "Signed" : "Imported · not signed")

@@ -13,12 +13,47 @@ struct SigningTweaksView: View {
 	@State private var _isAddingPresenting = false
 	@State private var _tweaksInDirectory: [URL] = []
 	@State private var _enabledTweaks: Set<URL> = []
+    @StateObject private var profileStore = ShrubTweakProfiles.shared
+    @State private var showProfileName = false
+    @State private var profileName = ""
+    @State private var profileNotice: String?
 	
 	@Binding var options: Options
 	
 	// MARK: Body
 	var body: some View {
 		NBList(.localized("Tweaks")) {
+            NBSection("Tweak Studio · Profiles") {
+                Button {
+                    profileName = ""
+                    showProfileName = true
+                } label: { Label("Save current tweaks as a profile", systemImage: "square.and.arrow.down") }
+                ForEach(profileStore.profiles) { profile in
+                    Button {
+                        let resolved = profileStore.resolvedFiles(for: profile)
+                        options.injectionFiles = resolved
+                        options.injectIntoExtensions = profile.intoExtensions
+                        _loadTweaks()
+                        profileNotice = "Loaded \(resolved.count) of \(profile.filenames.count) saved tweak files."
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(profile.name).font(.subheadline.weight(.medium))
+                                Text("\(profile.filenames.count) files")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "checkmark.circle")
+                        }
+                    }
+                    .swipeActions {
+                        Button("Delete", role: .destructive) { profileStore.delete(profile) }
+                    }
+                }
+                if let profileNotice { Text(profileNotice).font(.caption).foregroundStyle(.secondary) }
+            } footer: {
+                Text("Profiles reuse saved dylibs and other supported tweak files. Missing files are skipped instead of silently replaced.")
+            }
 			NBSection(.localized("Injection")) {
 				Picker(selection: $options.injectPath) {
 					ForEach(Options.InjectPath.allCases, id: \.rawValue) { path in
@@ -95,6 +130,17 @@ struct SigningTweaksView: View {
 				}
 			)
 		}
+        .alert("Save tweak profile", isPresented: $showProfileName) {
+            TextField("Profile name", text: $profileName)
+            Button("Save") {
+                let name = profileName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    profileStore.save(name: name, files: options.injectionFiles,
+                                      extensions: options.injectIntoExtensions)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("Save the current tweak selection for future signing operations.") }
 		.onAppear(perform: _loadTweaks)
 	}
 	

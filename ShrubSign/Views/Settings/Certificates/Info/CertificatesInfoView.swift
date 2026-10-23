@@ -63,6 +63,33 @@ extension CertificatesInfoView {
             }
 		}
 		
+        NBSection("Certificate Lab · Signing readiness") {
+            if let appID = data.Entitlements?["application-identifier"]?.value as? String {
+                if appID.hasSuffix(".*") {
+                    Label("Wildcard app identifier supported", systemImage: "checkmark.shield")
+                        .foregroundStyle(.green)
+                } else {
+                    Label("Profile is restricted to its listed app identifier", systemImage: "info.circle")
+                        .foregroundStyle(.orange)
+                }
+                _info("Allowed app identifier", description: appID)
+            } else {
+                Label("Profile does not declare an app identifier", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+            if data.ExpirationDate <= Date() {
+                Label("Expired · Signing may fail", systemImage: "xmark.shield")
+                    .foregroundStyle(.red)
+            } else {
+                Label("Provisioning profile has not expired", systemImage: "checkmark.circle")
+                    .foregroundStyle(.green)
+            }
+            if let expiration = cert.expiration, expiration < data.ExpirationDate {
+                _info("Certificate expiration", description: expiration.formatted(date: .abbreviated, time: .omitted))
+            }
+            Text("These checks use local certificate and provisioning metadata. They do not verify Apple revocation or guarantee an install.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
 		NBSection(.localized("Status")) {
 			_info(.localized("Expires"), description: data.ExpirationDate.formatted(date: .abbreviated, time: .shortened))
 				.foregroundStyle(data.ExpirationDate.expirationInfo().color)

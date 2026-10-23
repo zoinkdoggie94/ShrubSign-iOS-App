@@ -235,9 +235,10 @@ struct LibraryView: View {
 				}
 			}
 			.onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("feather.installApp"))) { notification in
-                if let app = _signedApps.first {
-                    _selectedInstallAppPresenting = AnyApp(base: app)
-				}
+                guard let bundleID = notification.object as? String, !bundleID.isEmpty else { return }
+                if let signed = _signedApps.first(where: { $0.identifier == bundleID }) {
+                    _selectedInstallAppPresenting = AnyApp(base: signed)
+                }
 			}
         }
         .onChange(of: _isEditMode) { state in

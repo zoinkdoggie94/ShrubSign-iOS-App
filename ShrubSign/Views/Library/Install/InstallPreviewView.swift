@@ -22,6 +22,7 @@ struct InstallPreviewView: View {
 	@AppStorage("Feather.serverMethod") private var _serverMethod: Int = 0
 	@State private var _isWebviewPresenting = false
     @State private var progressTask: Task<Void, Never>?
+    @State private var installRecordID = UUID()
 	
 	var app: AppInfoPresentable
 	@StateObject var viewModel: InstallerStatusViewModel
@@ -82,7 +83,13 @@ struct InstallPreviewView: View {
 			}
             
             switch newStatus {
-            case .completed, .broken(_):
+            case .completed:
+                if !isSharing { ShrubSigningCenter.shared.finish(id: installRecordID, error: nil) }
+                progressTask?.cancel()
+                progressTask = nil
+                BackgroundAudioManager.shared.stop()
+            case .broken(let error):
+                if !isSharing { ShrubSigningCenter.shared.finish(id: installRecordID, error: error) }
                 progressTask?.cancel()
                 progressTask = nil
                 BackgroundAudioManager.shared.stop()
@@ -111,8 +118,17 @@ struct InstallPreviewView: View {
 	}
 	
 	private func _install() {
+        if !isSharing {
+            ShrubSigningCenter.shared.begin(id: installRecordID,
+                name: app.name ?? "Unnamed IPA", bundleID: app.identifier, kind: "Installation")
+        }
         let ownBundleID = Bundle.main.bundleIdentifier
         guard isSharing || app.identifier != ownBundleID || _installationMethod == 1 else {
+            if !isSharing {
+                ShrubSigningCenter.shared.finish(id: installRecordID, error: NSError(
+                    domain: "ShrubSign.Install", code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "You cannot replace ShrubSign using this installation method."]))
+            }
             UIAlertController.showAlertWithOk(
                 title: .localized("Install"),
                 message: .localized("You cannot update ‘%@‘ with itself, please use an alternative tool to update it.", arguments: Bundle.main.name)

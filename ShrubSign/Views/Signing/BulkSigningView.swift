@@ -44,6 +44,7 @@ struct BulkSigningView: View {
     @State private var _isFinished = false
     @State private var _completedCount = 0
     @State private var _currentAppName = ""
+    @State private var _stopAfterCurrent = false
     @State private var _results: [SignResult] = []
 	@State private var _selectedPhoto: PhotosPickerItem? = nil
 	@State private var _editingConfigId: String?
@@ -71,6 +72,13 @@ struct BulkSigningView: View {
                         if _isSigning {
                             Label("Signing \(_currentAppName)", systemImage: "signature")
                                 .font(.subheadline)
+                            Button(_stopAfterCurrent ? "Stopping after current IPA…" : "Stop queue after current IPA",
+                                   systemImage: "stop.circle", role: .destructive) {
+                                _stopAfterCurrent = true
+                            }
+                            .disabled(_stopAfterCurrent)
+                            Text("The current signing operation finishes safely before the queue stops.")
+                                .font(.caption).foregroundStyle(.secondary)
                         } else {
                             Text("Finished. Review results below and open your library to see signed apps.")
                                 .font(.subheadline)
@@ -330,6 +338,7 @@ extension BulkSigningView {
         }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         _completedCount = 0
+        _stopAfterCurrent = false
         _results = []
         _isSigning = true
         // A new copy of the configuration and selected certificate is held for this queue.
@@ -342,7 +351,7 @@ extension BulkSigningView {
         configurations: [AppSignConfig],
         certificate: CertificatePair?
     ) {
-        guard index < configurations.count else {
+        guard index < configurations.count && !_stopAfterCurrent else {
             _currentAppName = ""
             _isSigning = false
             _isFinished = true

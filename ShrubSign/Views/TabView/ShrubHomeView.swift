@@ -106,6 +106,7 @@ struct ShrubHomeView: View {
                 Text("Signing is easy with ShrubSign")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -147,6 +148,11 @@ struct ShrubHomeView: View {
                 actionRow("Browse repositories", description: "Open your saved sources and load them only when needed", icon: "magnifyingglass")
             }
             .disabled(repositories.isEmpty)
+            NavigationLink {
+                ShrubSigningCenterView()
+            } label: {
+                actionRow("Signing & Installation Center", description: "Track signing, install results and troubleshoot failures", icon: "checkmark.circle.badge.clock")
+            }
             NavigationLink {
                 LibraryView()
             } label: {
@@ -201,6 +207,9 @@ struct ShrubHomeView: View {
             }
             Link(destination: URL(string: "https://shrublibrary.pages.dev")!) {
                 actionRow("Explore ShrubLibrary", description: "Find more repository links on the ShrubLibrary website", icon: "globe")
+            }.buttonStyle(.plain)
+            Link(destination: URL(string: "https://shrubcerts.pages.dev")!) {
+                actionRow("ShrubCerts · Private Certificates", description: "Visit ShrubCerts for certificate options", icon: "checkmark.shield")
             }.buttonStyle(.plain)
         }
     }

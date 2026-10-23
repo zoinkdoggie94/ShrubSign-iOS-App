@@ -1,3 +1,17 @@
+
+## ShrubSign 3.1 — Signing is easy with ShrubSign
+
+- **Quick Sign Pro:** reusable signing presets with optional per-app rules and Quick Sign & Install.
+- **IPA Inspector:** native bundle metadata, executable structure, frameworks, extensions, compatibility notices, and report sharing.
+- **Tweak Studio:** save and reuse selections of actual locally stored tweaks.
+- **Signing Center:** real signing operation outcomes and safe retry navigation.
+- **ShrubLibrary Ultra:** saved apps, available-version comparisons across loaded repositories, and saved-app update notices after manual refresh.
+- **Certificate Lab:** readable provisioning compatibility and expiration checks.
+- **Signing Queue:** safe stop-after-current control for bulk signing.
+- **ShrubCerts:** certificate-store shortcut in Settings and Home (`https://shrubcerts.pages.dev`).
+
+Note: ShrubSign does not guarantee signing or install success for every IPA/certificate. The app remains based on the upstream open-source project and retains applicable license notices.
+
 <p align="center">
   <img src="https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png" width="160" alt="ShrubSign icon">
 </p>
@@ -40,3 +54,23 @@ Upstream Ksign: https://github.com/nyasami/Ksign
 ## License
 
 ShrubSign retains the upstream licensing requirements. See `LICENSE`, `LICENSE_ELLEKIT`, bundled acknowledgements, and dependency licenses. Fork branding does not remove or replace upstream copyright or license notices.
+
+# ShrubSign 3.1 acceptance checklist
+
+Build using GitHub Actions on macOS/Xcode. Source parsing on Linux does not guarantee SwiftUI type checking or successful device operation.
+
+1. Verify app starts in light/dark appearance, portrait/landscape and iPad split view.
+2. Settings → ShrubCerts opens https://shrubcerts.pages.dev and does not disclose local certificates.
+3. Import a known-good IPA, inspect it, verify actual executable, framework and extension counts.
+4. Save a signing preset, configure a per-app rule and sign using Quick Sign. Verify actual signed IPA is created.
+5. With two imported IPAs, batch sign and use Stop queue after current IPA; verify the first completes and the next does not start.
+6. Open Signing Center: completed and failed operations show status and error reason. Reopen app and confirm history persists.
+7. Save multiple tweak files, create a Tweak Studio profile, deselect and apply it; verify same saved files are restored.
+8. Refresh ShrubLibrary, save a listing, compare same app across sources, close/reopen app and check favorites persist.
+9. Refresh later after source version changes; verify What's New notices appear only for tracked saved apps.
+10. Verify the existing installation methods with a known-good certificate and supported app. Quick Sign & Install must target the signed app, not an unrelated latest entry.
+11. Verify older releases remain published; IPA has real Payload folder, Info.plist and executable.
+12. Test large IPAs with adequate free space. Inspect signing failures, compare timings and ensure no expired certificate is silently selected.
+
+Do not publish a stable release until all applicable checks pass on actual hardware.
+
