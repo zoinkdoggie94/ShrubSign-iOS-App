@@ -19,7 +19,6 @@ struct BulkInstallProgressView: View {
     @StateObject var installer: ServerInstaller
     @State private var _isWebviewPresenting = false
     @State private var didStartLocalHandoff = false
-    @State private var didStartLocalHandoff = false
     @State private var progressTask: Task<Void, Never>?
     
     init(app: AppInfoPresentable) {

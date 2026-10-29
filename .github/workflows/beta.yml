@@ -52,12 +52,17 @@ jobs:
           result=$?
           set -e
           if [ "$result" -ne 0 ]; then
-            echo "::group::Compiler and build errors"
-            grep -nEi -C 3 '(^|/)[^ ]+\.swift:[0-9]+:[0-9]+: error:|error:|fatal error:|BUILD FAILED|\*\* BUILD FAILED \*\*' \
-              "$RUNNER_TEMP/shrubsign-build.log" | tail -n 180 || true
+            LOG="$RUNNER_TEMP/shrubsign-build.log"
+            echo "Build command failed with exit code $result"
+            echo "Build log size: $(wc -c < "$LOG") bytes"
+            echo "::group::Compiler errors and failure messages"
+            grep -a -nEi -C 3 '(^|[[:space:]])error:|fatal error:|build failed|make: \*\*\*|failed|cannot find|invalid redeclaration|ambiguous use|no such module' "$LOG" | tail -n 180 || true
             echo "::endgroup::"
-            echo "::group::Final build output"
-            tail -n 70 "$RUNNER_TEMP/shrubsign-build.log"
+            echo "::group::Start of the nonempty build log"
+            tr '\r' '\n' < "$LOG" | sed '/^[[:space:]]*$/d' | head -n 40 || true
+            echo "::endgroup::"
+            echo "::group::Final 120 nonempty build-log lines"
+            tr '\r' '\n' < "$LOG" | sed '/^[[:space:]]*$/d' | tail -n 120 || true
             echo "::endgroup::"
             exit "$result"
           fi
