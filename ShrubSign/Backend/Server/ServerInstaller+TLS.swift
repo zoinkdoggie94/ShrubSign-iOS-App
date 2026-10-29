@@ -37,9 +37,12 @@ extension ServerInstaller {
             app.http.server.configuration.tlsConfiguration = tls
         }
 		
-		app.http.server.configuration.hostname = Self.sni
-		app.http.server.configuration.tcpNoDelay = true
-		app.http.server.configuration.address = .hostname("0.0.0.0", port: port)
+        // Fully Local is only for the current device. Do not expose its
+        // certificate-backed IPA server to other devices on the LAN.
+        let bindingAddress = ServerInstaller.getServerMethod() == 1 ? "0.0.0.0" : "127.0.0.1"
+        app.http.server.configuration.hostname = bindingAddress
+        app.http.server.configuration.tcpNoDelay = true
+        app.http.server.configuration.address = .hostname(bindingAddress, port: port)
 		app.http.server.configuration.port = port
 		app.routes.defaultMaxBodySize = "128mb"
 		app.routes.caseInsensitive = false

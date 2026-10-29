@@ -25,6 +25,80 @@ class ServerInstaller: Identifiable, ObservableObject {
 	@ObservedObject var viewModel: InstallerStatusViewModel
 	private var _server: Application?
 
+    // iOS may dismiss the installation view while itms-services is fetching
+    // the manifest and IPA. Hold a bounded reference so SwiftUI view teardown
+    // does not destroy the server during that handoff.
+    private static let activeInstallLock = NSLock()
+    private static var activeInstallers: [UUID: ServerInstaller] = [:]
+
+    func keepServerAliveDuringInstall() {
+        Self.activeInstallLock.lock()
+        Self.activeInstallers[id] = self
+        Self.activeInstallLock.unlock()
+
+        // Prevent unbounded retained servers. Expiry is a fallback for installs
+        // where iOS never reports success or failure to the application.
+        let installID = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 900) {
+            Self.releaseInstallation(installID)
+        }
+    }
+
+    func stopKeepingAlive() {
+        Self.releaseInstallation(id)
+    }
+
+    static func releaseInstallation(_ installID: UUID) {
+        activeInstallLock.lock()
+        let released = activeInstallers.removeValue(forKey: installID)
+        activeInstallLock.unlock()
+        _ = released
+    }
+
+    // Test the same HTTPS hostname and manifest URL that the system installer
+    // will receive. Unlike checking that three files exist, this exercises
+    // DNS, TLS trust, the listener, and manifest delivery.
+    func verifyFullyLocalConnection() async throws {
+        guard Self.getServerMethod() != 1 else { return }
+        guard let fileURL = packageUrl,
+              fileURL.isFileURL,
+              FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw NSError(domain: "ShrubSign.Install", code: 11,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "The signed IPA is missing. Export or sign the app again before installing."])
+        }
+
+        let target = plistEndpoint
+        var request = URLRequest(url: target)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 8
+        request.setValue("1", forHTTPHeaderField: "X-ShrubSign-Preflight")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 12
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw NSError(domain: "ShrubSign.Install", code: 12,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "The local HTTPS server did not return its installation manifest (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))."])
+            }
+            let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
+            guard let dictionary = plist as? [String: Any], dictionary["items"] != nil else {
+                throw NSError(domain: "ShrubSign.Install", code: 13,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "The local HTTPS server returned an invalid installation manifest."])
+            }
+        } catch {
+            throw NSError(domain: "ShrubSign.Install", code: 14,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Fully Local HTTPS is not reachable at \(target.host ?? "localhost"):\(target.port ?? 0). The signed IPA has NOT been handed to iOS yet. Check Settings → General → About → Certificate Trust Settings, or use Semi Local until this connection works. Details: \(error.localizedDescription)",
+                    NSUnderlyingErrorKey: error])
+        }
+    }
+
 	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) {
 		self.app = app
 		self.viewModel = viewModel
@@ -66,7 +140,11 @@ class ServerInstaller: Identifiable, ObservableObject {
 			guard let self else { return Response(status: .badGateway) }
 			switch req.url.path {
 			case plistEndpoint.path:
-				self._updateStatus(.sendingManifest)
+                // A local preflight request must not masquerade as iOS
+                // starting the installation.
+                if req.headers.first(name: "X-ShrubSign-Preflight") != "1" {
+                    self._updateStatus(.sendingManifest)
+                }
 				return Response(status: .ok, version: req.version, headers: [
 					"Content-Type": "text/xml",
 				], body: .init(data: installManifestData))

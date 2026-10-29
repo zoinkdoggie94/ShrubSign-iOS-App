@@ -19,8 +19,9 @@ struct InstallPreviewView: View {
 	
 	// Methods
     @AppStorage("Feather.installationMethod") private var _installationMethod: Int = 0
-	@AppStorage("Feather.serverMethod") private var _serverMethod: Int = 0
+	@AppStorage("Feather.serverMethod") private var _serverMethod: Int = 1
 	@State private var _isWebviewPresenting = false
+    @State private var didStartLocalHandoff = false
     @State private var progressTask: Task<Void, Never>?
     @State private var installRecordID = UUID()
 	
@@ -51,12 +52,29 @@ struct InstallPreviewView: View {
 		.onReceive(viewModel.$status) { newStatus in
 			if case .ready = newStatus {
 				if _serverMethod == 0 {
-					if let url = URL(string: installer.iTunesLink) {
-                        UIApplication.shared.open(url)
-                    } else {
-                        viewModel.status = .broken(URLError(.badURL))
+                    // Verify the HTTPS server and local manifest before asking
+                    // iOS to install an app. The endpoint MUST be reachable.
+                    if !didStartLocalHandoff {
+                        didStartLocalHandoff = true
+                        Task { @MainActor in
+                            do {
+                                try await installer.verifyFullyLocalConnection()
+                                guard let url = URL(string: installer.iTunesLink) else {
+                                    throw URLError(.badURL)
+                                }
+                                installer.keepServerAliveDuringInstall()
+                                UIApplication.shared.open(url, options: [:]) { accepted in
+                                    if !accepted {
+                                        installer.stopKeepingAlive()
+                                        viewModel.status = .broken(URLError(.cannotConnectToHost))
+                                    }
+                                }
+                            } catch {
+                                viewModel.status = .broken(error)
+                            }
+                        }
                     }
-				} else if _serverMethod == 1 {
+                } else if _serverMethod == 1 {
 					_isWebviewPresenting = true
 				}
 			}
