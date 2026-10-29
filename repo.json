@@ -12,13 +12,21 @@
       "bundleIdentifier": "com.shrubhub.shrubsign",
       "developerName": "ShrubHub",
       "iconURL": "https://ipa-and-dns-stuff.pages.dev/icons/shrubhub.png",
-      "localizedDescription": "ShrubSign 3.0 is the full stability release: faster and safer signing flows, improved tweak injection errors, persistent ShrubLibrary caching, hardened repository browsing, more reliable installation handling, richer certificate information, and a polished native UI.",
+      "localizedDescription": "ShrubSign is an iOS IPA signer with ShrubLibrary integration, Quick Sign, IPA Inspector, Tweak Studio, a signing history center, and certificate tools.",
       "subtitle": "Signing is easy with ShrubSign",
       "tintColor": "72E894",
       "category": "utilities",
       "versions": [
         {
-          "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/latest/download/ShrubSign.ipa",
+          "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.0-build-16.1/ShrubSign.ipa",
+          "version": "3.2.0",
+          "buildVersion": "8",
+          "date": "2026-10-29T03:49:25Z",
+          "localizedDescription": "ShrubSign 3.2 with faster IPA packaging, safer signing recovery, ShrubLibrary, IPA Inspector, Tweak Studio, and workflow improvements.",
+          "minOSVersion": "16.0"
+        },
+        {
+          "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.0.0-build-12.1/ShrubSign.ipa",
           "version": "3.0.0",
           "buildVersion": "6",
           "date": "2026-10-08T23:49:00Z",
@@ -27,9 +35,9 @@
         }
       ],
       "appPermissions": {},
-      "version": "3.0.0",
-      "versionDate": "2026-10-08T23:49:00Z",
-      "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/latest/download/ShrubSign.ipa"
+      "version": "3.2.0",
+      "versionDate": "2026-10-29T03:49:25Z",
+      "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.0-build-16.1/ShrubSign.ipa"
     }
   ]
 }
