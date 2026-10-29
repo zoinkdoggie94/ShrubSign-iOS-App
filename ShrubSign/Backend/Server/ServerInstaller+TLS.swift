@@ -26,11 +26,16 @@ extension ServerInstaller {
 		let app = Application(env)
 		app.threadPool = .init(numberOfThreads: 1)
 		
-		if ServerInstaller.getServerMethod() != 1 {
-			if let tls = try Self.tls() {
-				app.http.server.configuration.tlsConfiguration = tls
-			}
-		}
+        if ServerInstaller.getServerMethod() != 1 {
+            // Do not silently launch a plain HTTP server whose manifest claims
+            // to use HTTPS. Surface the incomplete Fully Local setup instead.
+            guard let tls = try Self.tls() else {
+                throw NSError(domain: "ShrubSign.LocalSSL", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "Fully Local requires trusted SSL credentials. Open Settings → Installation → Server & SSL to finish setup."])
+            }
+            app.http.server.configuration.tlsConfiguration = tls
+        }
 		
 		app.http.server.configuration.hostname = Self.sni
 		app.http.server.configuration.tcpNoDelay = true
@@ -43,7 +48,8 @@ extension ServerInstaller {
 	}
 	
 	// MARK: Files/IP
-	static let sni: String = {
+    // Live value: users can switch methods without reinstalling the app.
+    static var sni: String {
 		let localhost = "127.0.0.1"
 		
 		if getServerMethod() == 1 {
@@ -53,9 +59,9 @@ extension ServerInstaller {
 		} else {
 			return readCommonName() ?? localhost
 		}
-	}()
-	
-	static func tls() throws -> TLSConfiguration? {
+    }
+
+    static func tls() throws -> TLSConfiguration? {
 		guard
 			let crt = getUrl("server", ext: "crt"),
 			let pem = getUrl("server", ext: "pem")

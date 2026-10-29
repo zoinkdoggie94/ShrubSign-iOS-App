@@ -92,12 +92,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _clean()
         
         _copyServerCertificates()
+        _configureLocalInstallDefault()
         _addDefaultCertificates()
-
-#if SERVER
-        // fallback just in case xd
-        _downloadSSLCertificates()
-#endif
         return true
     }
     
@@ -116,8 +112,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }()
             let dataCache = try? DataCache(name: "thewonderofyou.Feather.datacache") // disk cache
             let imageCache = Nuke.ImageCache() // memory cache
-            dataCache?.sizeLimit = 500 * 1024 * 1024
-            imageCache.costLimit = 100 * 1024 * 1024
+            dataCache?.sizeLimit = 200 * 1024 * 1024
+            imageCache.costLimit = 48 * 1024 * 1024
             $0.dataCache = dataCache
             $0.imageCache = imageCache
             $0.dataLoader = dataLoader
@@ -170,8 +166,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             
             let destinationURL = serverDirectory.appendingPathComponent(fileName)
             
-            try? fileManager.removeItem(at: destinationURL)
-            
+            // Never replace a user's locally generated and trusted credentials.
+            if fileManager.fileExists(atPath: destinationURL.path) { continue }
+
             do {
                 try fileManager.copyItem(at: bundleURL, to: destinationURL)
             } catch {
@@ -180,6 +177,21 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
     
+    private func _configureLocalInstallDefault() {
+        let defaults = UserDefaults.standard
+        let migrationKey = "ShrubSign.semiLocalDefaultV1"
+        guard !defaults.bool(forKey: migrationKey) else { return }
+        let serverFolder = URL.documentsDirectory.appendingPathComponent("App/Server")
+        let required = ["server.crt", "server.pem", "commonName.txt"]
+        let hasTrustedSetup = required.allSatisfy {
+            FileManager.default.fileExists(atPath: serverFolder.appendingPathComponent($0).path)
+        }
+        // Protect existing custom Fully Local installations; choose Semi Local
+        // for new installs and for people without complete HTTPS credentials.
+        if !hasTrustedSetup { defaults.set(1, forKey: "Feather.serverMethod") }
+        defaults.set(true, forKey: migrationKey)
+    }
+
     private func _addDefaultCertificates() {
             guard
                 UserDefaults.standard.bool(forKey: "feather.didImportDefaultCertificates") == false,
@@ -230,17 +242,4 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
 
-#if SERVER
-    private func _downloadSSLCertificates() {
-        let serverURL = "https://backloop.dev/pack.json"
-        
-        FR.downloadSSLCertificates(from: serverURL) { success in
-            if success {
-                print("SSL certificates downloaded successfully")
-            } else {
-                print("Failed to download SSL certificates")
-            }
-        }
-    }
-#endif
 }

@@ -117,8 +117,8 @@ def update_document(document: dict, release: dict, releases: list[dict], version
         "buildVersion": build,
         "date": release_date,
         "localizedDescription": (
-            "ShrubSign 3.2 with faster IPA packaging, safer signing recovery, "
-            "ShrubLibrary, IPA Inspector, Tweak Studio, and workflow improvements."
+            f"ShrubSign {version}: improved signing responsiveness, Semi Local by default, "
+            "optional per-device Fully Local SSL setup, and faster repeat builds."
         ),
         "minOSVersion": "16.0",
     }

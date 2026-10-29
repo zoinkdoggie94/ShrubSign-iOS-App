@@ -33,6 +33,16 @@ jobs:
           restore-keys: |
             shrubsign-macos26-deps-v1-
 
+      # Compilation reuse is best-effort. GitHub may evict or decline to cache
+      # large build folders, so clean builds remain supported.
+      - name: Restore compiled Xcode dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ShrubSign/Build
+          key: shrubsign-compiled-macos26-v2-${{ hashFiles('ShrubSign.xcodeproj/project.pbxproj', 'makefile') }}-${{ github.sha }}
+          restore-keys: |
+            shrubsign-compiled-macos26-v2-${{ hashFiles('ShrubSign.xcodeproj/project.pbxproj', 'makefile') }}-
+
       - name: Build
         run: |
           # Save a complete searchable log and print actionable compiler diagnostics

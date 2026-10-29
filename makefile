@@ -1,7 +1,8 @@
 NAME := ShrubSign
 PLATFORM := iphoneos
 SCHEMES := ShrubSign
-TMP := $(TMPDIR)/$(NAME)
+# Stable path across hosted builds permits reuse of compiled intermediates.
+TMP ?= $(if $(RUNNER_TEMP),$(RUNNER_TEMP)/$(NAME),$(TMPDIR)/$(NAME))
 # A stable package checkout location can be restored by GitHub Actions cache.
 SOURCE_PACKAGES := $(HOME)/Library/Caches/ShrubSign/SourcePackages
 STAGE := $(TMP)/stage
@@ -27,7 +28,7 @@ deps:
 	    echo "ERROR: The supplied local HTTPS certificate/key files are invalid." >&2; \
 	    exit 1; \
 	  }; \
-	  echo "*.backloop.dev" > deps/commonName.txt; \
+	  if [ ! -s deps/commonName.txt ]; then echo "127.0.0.1" > deps/commonName.txt; fi; \
 	  echo "Using supplied local HTTPS server certificate files."; \
 	else \
 	  rm -f deps/server.crt deps/server.pem deps/commonName.txt; \
@@ -42,6 +43,7 @@ $(SCHEMES): deps
 	    -configuration Release \
 	    -arch arm64 \
 	    -sdk $(PLATFORM) \
+	    -jobs 4 \
 	    -derivedDataPath $(TMP) \
 	    -clonedSourcePackagesDirPath "$(SOURCE_PACKAGES)" \
 	    -skipPackagePluginValidation \
@@ -55,7 +57,8 @@ $(SCHEMES): deps
 
 	mv "$(APP)/$@.app" "$(STAGE)/Payload/$@.app"
 
-	chmod -R 0755 "$(STAGE)/Payload/$@.app"
+	# Preserve regular file modes and avoid a recursive chmod on large apps.
+	chmod 0755 "$(STAGE)/Payload/$@.app"
 	codesign --force --sign - --timestamp=none "$(STAGE)/Payload/$@.app"
 
 	@if ls deps/* >/dev/null 2>&1; then cp deps/* "$(STAGE)/Payload/$@.app/"; fi

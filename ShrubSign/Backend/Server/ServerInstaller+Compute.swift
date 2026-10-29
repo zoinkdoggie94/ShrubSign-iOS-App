@@ -103,7 +103,7 @@ extension ServerInstaller {
 	var html: String {
 		"""
 		<html style="background-color: black;">
-		<script type="text/javascript">window.location="\(iTunesLinkExternal)"</script>
+		<script type="text/javascript">window.location="\(ServerInstaller.getServerMethod() == 1 ? iTunesLinkExternal : iTunesLink)"</script>
 		</html>
 		"""
 	}
