@@ -24,6 +24,15 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Cache Swift package checkouts and build dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/ShrubSign/SourcePackages
+          key: shrubsign-macos26-deps-v1-${{ hashFiles('ShrubSign.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            shrubsign-macos26-deps-v1-
+
       - name: Build
         run: |
           # Save a complete searchable log and print actionable compiler diagnostics
@@ -88,6 +97,14 @@ jobs:
             --latest
 
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Update AltStore repo.json after release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          python3 scripts/update_repo.py
 
       - name: Notify Discord
         continue-on-error: true

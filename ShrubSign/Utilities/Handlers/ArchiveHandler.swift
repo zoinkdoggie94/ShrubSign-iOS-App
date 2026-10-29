@@ -11,6 +11,24 @@ import Zip
 import SwiftUI
 import IDeviceSwift
 
+// Posting a SwiftUI state change for every ZIP progress callback can flood the
+// main actor during large IPA creation. Keep it to roughly ten updates/second.
+private final class ShrubArchiveProgressGate {
+    private let lock = NSLock()
+    private var lastReport: TimeInterval = 0
+
+    func shouldReport(_ progress: Double) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = ProcessInfo.processInfo.systemUptime
+        if progress >= 1 || now - lastReport >= 0.10 {
+            lastReport = now
+            return true
+        }
+        return false
+    }
+}
+
 final class ArchiveHandler: NSObject {
 	@ObservedObject var viewModel: InstallerStatusViewModel
 	
@@ -53,13 +71,14 @@ final class ArchiveHandler: NSObject {
 			let zipUrl = self._uniqueWorkDir.appendingPathComponent("Archive.zip")
 			let ipaUrl = self._uniqueWorkDir.appendingPathComponent("Archive.ipa")
 			
+            let progressGate = ShrubArchiveProgressGate()
 			try await Zip.zipFiles(
 				paths: [payloadUrl],
 				zipFilePath: zipUrl,
 				password: nil,
-				compression: ZipCompression.allCases[ArchiveHandler.getCompressionLevel()],
+				compression: ArchiveHandler.selectedCompression(),
 				progress: { progress in
-					
+                    guard progressGate.shouldReport(progress) else { return }
 					Task { @MainActor in
 						self.viewModel.packageProgress = progress
 					}
@@ -90,7 +109,13 @@ final class ArchiveHandler: NSObject {
 		return dest
 	}
 	
-	static func getCompressionLevel() -> Int {
-		UserDefaults.standard.integer(forKey: "Feather.compressionLevel")
-	}
+    // Prefer fast ZIP creation for fresh installs; users can still choose a
+    // different compression level in Settings. Never index with a rawValue.
+    static func selectedCompression() -> ZipCompression {
+        let defaults = UserDefaults.standard
+        let key = "Feather.compressionLevel"
+        guard defaults.object(forKey: key) != nil else { return .BestSpeed }
+        let savedRawValue = defaults.integer(forKey: key)
+        return ZipCompression.allCases.first(where: { $0.rawValue == savedRawValue }) ?? .BestSpeed
+    }
 }

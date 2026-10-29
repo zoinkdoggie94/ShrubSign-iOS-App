@@ -60,9 +60,13 @@ enum FR {
 			}
 			handler.appIcon = icon
 			
-			do {
-				try await handler.copy()
-				try await handler.modify()
+            do {
+                let start = ProcessInfo.processInfo.systemUptime
+                try await handler.copy()
+                let copied = ProcessInfo.processInfo.systemUptime
+                try await handler.modify()
+                let modified = ProcessInfo.processInfo.systemUptime
+                print("[ShrubSign] Signing stages: prepare=\(Int((copied - start) * 1000))ms, modify+sign+save=\(Int((modified - copied) * 1000))ms")
                 try? await handler.clean()
 				
                 await MainActor.run {

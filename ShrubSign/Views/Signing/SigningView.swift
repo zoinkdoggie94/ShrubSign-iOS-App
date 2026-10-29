@@ -74,12 +74,20 @@ struct SigningView: View {
 			}
 			.disabled(_isSigning)
 			.safeAreaInset(edge: .bottom) {
-				if _isSigning {
-					Button() {
-						_isLogsPresenting = true
-					} label: {
-						NBSheetButton(title: .localized("Show Logs"))
-					}
+                if _isSigning {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Signing in progress…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 4)
+                    }
+                    .padding(.horizontal, 16)
+                    Button() {
+                        _isLogsPresenting = true
+                    } label: {
+                        NBSheetButton(title: .localized("Show Logs"))
+                    }
 					.tint(.secondary)
 					.compatMatchedTransitionSource(id: "showLogs", ns: _namespace)
 				} else {
@@ -392,18 +400,16 @@ extension SigningView {
 			using: _temporaryOptions,
 			icon: appIcon,
 			certificate: _selectedCert()
-		) { [self] error in
-			if let error {
-				let ok = UIAlertAction(title: .localized("Dismiss"), style: .cancel) { _ in
-					dismiss()
-				}
-				
-				UIAlertController.showAlert(
-					title: .localized("Signing"),
-					message: error.localizedDescription,
-					actions: [ok]
-				)
-			} else {
+        ) { [self] error in
+            _isSigning = false
+            if let error {
+                // Keep all the user's options intact so they can correct the
+                // certificate or tweaks and retry instead of starting over.
+                UIAlertController.showAlertWithOk(
+                    title: "Signing failed",
+                    message: error.localizedDescription
+                )
+            } else {
 				// Remove app after signed option thing
 				if _temporaryOptions.removeApp && !app.isSigned {
 					Storage.shared.deleteApp(for: app)

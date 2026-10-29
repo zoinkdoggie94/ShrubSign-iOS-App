@@ -10,7 +10,7 @@ import Zip
 import NimbleViews
 
 struct ArchiveView: View {
-	@AppStorage("Feather.compressionLevel") private var _compressionLevel: Int = ZipCompression.DefaultCompression.rawValue
+	@AppStorage("Feather.compressionLevel") private var _compressionLevel: Int = ZipCompression.BestSpeed.rawValue
 	@AppStorage("Feather.useShareSheetForArchiving") private var _useShareSheet: Bool = true
 	@AppStorage("Feather.useLastExportLocation") private var _useLastExportLocation: Bool = false
 	@AppStorage("Feather.extractionLibrary") private var _extractionLibrary: String = "Zip"
@@ -20,11 +20,13 @@ struct ArchiveView: View {
 			Section {
 				Picker(.localized("Compression Level"), systemImage: "archivebox", selection: $_compressionLevel) {
 					ForEach(ZipCompression.allCases, id: \.rawValue) { level in
-						Text(level.label).tag(level)
+						Text(level.label).tag(level.rawValue)
 					}
-				}
-			}
-			
+                }
+            } footer: {
+                Text("Speed is recommended for faster IPA packaging. Best compression takes longer but may produce smaller files.")
+            }
+
 			Section {
 				Toggle(.localized("Show Sheet when Exporting"), systemImage: "square.and.arrow.up", isOn: $_useShareSheet)
 			} footer: {

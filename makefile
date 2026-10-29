@@ -2,6 +2,8 @@ NAME := ShrubSign
 PLATFORM := iphoneos
 SCHEMES := ShrubSign
 TMP := $(TMPDIR)/$(NAME)
+# A stable package checkout location can be restored by GitHub Actions cache.
+SOURCE_PACKAGES := $(HOME)/Library/Caches/ShrubSign/SourcePackages
 STAGE := $(TMP)/stage
 APP := $(TMP)/Build/Products/Release-$(PLATFORM)
 
@@ -15,12 +17,13 @@ clean:
 	rm -rf Payload
 
 deps:
-	rm -rf deps || true
 	mkdir -p deps
-	curl -L -o deps/server.crt https://backloop.dev/backloop.dev-cert.crt || true
-	curl -L -o deps/server.key1 https://backloop.dev/backloop.dev-key.part1.pem || true
-	curl -L -o deps/server.key2 https://backloop.dev/backloop.dev-key.part2.pem || true
-	cat deps/server.key1 deps/server.key2 > deps/server.pem 2>/dev/null || true
+	@if [ ! -s deps/server.crt ]; then curl -fsSL --retry 2 --connect-timeout 12 --max-time 45 -o deps/server.crt https://backloop.dev/backloop.dev-cert.crt; fi
+	@if [ ! -s deps/server.pem ]; then \
+	  curl -fsSL --retry 2 --connect-timeout 12 --max-time 45 -o deps/server.key1 https://backloop.dev/backloop.dev-key.part1.pem && \
+	  curl -fsSL --retry 2 --connect-timeout 12 --max-time 45 -o deps/server.key2 https://backloop.dev/backloop.dev-key.part2.pem && \
+	  cat deps/server.key1 deps/server.key2 > deps/server.pem; \
+	fi
 	rm -f deps/server.key1 deps/server.key2
 	echo "*.backloop.dev" > deps/commonName.txt
 
@@ -32,6 +35,7 @@ $(SCHEMES): deps
 	    -arch arm64 \
 	    -sdk $(PLATFORM) \
 	    -derivedDataPath $(TMP) \
+	    -clonedSourcePackagesDirPath "$(SOURCE_PACKAGES)" \
 	    -skipPackagePluginValidation \
 	    SHRUBSIGN_BUILD_SHA="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo local)" \
 	    CODE_SIGNING_ALLOWED=NO \
@@ -55,7 +59,7 @@ $(SCHEMES): deps
 	rm -rf Payload
 	mkdir -p packages
 	rm -f "packages/ShrubSign.ipa"
-	cd "$(STAGE)" && zip -qry -X "$(CURDIR)/packages/ShrubSign.ipa" Payload
+	cd "$(STAGE)" && zip -qry -1 -X "$(CURDIR)/packages/ShrubSign.ipa" Payload
 
 	# Refuse to publish an IPA that cannot be opened or lacks its required bundle files.
 	unzip -tq "packages/ShrubSign.ipa"
