@@ -17,15 +17,23 @@ clean:
 	rm -rf Payload
 
 deps:
-	mkdir -p deps
-	@if [ ! -s deps/server.crt ]; then curl -fsSL --retry 2 --connect-timeout 12 --max-time 45 -o deps/server.crt https://backloop.dev/backloop.dev-cert.crt; fi
-	@if [ ! -s deps/server.pem ]; then \
-	  curl -fsSL --retry 2 --connect-timeout 12 --max-time 45 -o deps/server.key1 https://backloop.dev/backloop.dev-key.part1.pem && \
-	  curl -fsSL --retry 2 --connect-timeout 12 --max-time 45 -o deps/server.key2 https://backloop.dev/backloop.dev-key.part2.pem && \
-	  cat deps/server.key1 deps/server.key2 > deps/server.pem; \
+	@mkdir -p deps
+	@# The publicly hosted backloop.dev cert/key files were withdrawn.
+	@# Never make an IPA build depend on those obsolete download links.
+	@rm -f deps/server.key1 deps/server.key2
+	@if [ -s deps/server.crt ] && [ -s deps/server.pem ]; then \
+	  openssl x509 -in deps/server.crt -noout >/dev/null && \
+	  openssl pkey -in deps/server.pem -noout >/dev/null || { \
+	    echo "ERROR: The supplied local HTTPS certificate/key files are invalid." >&2; \
+	    exit 1; \
+	  }; \
+	  echo "*.backloop.dev" > deps/commonName.txt; \
+	  echo "Using supplied local HTTPS server certificate files."; \
+	else \
+	  rm -f deps/server.crt deps/server.pem deps/commonName.txt; \
+	  echo "NOTICE: No local HTTPS TLS credentials bundled; retired backloop.dev downloads skipped."; \
+	  echo "NOTICE: Local HTTPS installation requires a separately configured trusted server certificate."; \
 	fi
-	rm -f deps/server.key1 deps/server.key2
-	echo "*.backloop.dev" > deps/commonName.txt
 
 $(SCHEMES): deps
 	xcodebuild \
@@ -50,7 +58,7 @@ $(SCHEMES): deps
 	chmod -R 0755 "$(STAGE)/Payload/$@.app"
 	codesign --force --sign - --timestamp=none "$(STAGE)/Payload/$@.app"
 
-	cp deps/* "$(STAGE)/Payload/$@.app/" || true
+	@if ls deps/* >/dev/null 2>&1; then cp deps/* "$(STAGE)/Payload/$@.app/"; fi
 
 	rm -rf "$(STAGE)/Payload/$@.app/_CodeSignature"
 
