@@ -17,14 +17,20 @@ public struct NBListAdaptable<Content>: View where Content: View {
 	}
 	
 	public var body: some View {
-		if horizontalSizeClass == .compact {
-			List {
-				_content
-			}
-			.listStyle(.plain)
-		} else {
-			NBGrid {
-				_content
+		// A grid splits Section content into individual tiles, which broke the
+		// Library layout on iPad because every header and row became its own
+		// cell. Keep a real List on every size class and only change the style.
+		Group {
+			if horizontalSizeClass == .compact {
+				List {
+					_content
+				}
+				.listStyle(.plain)
+			} else {
+				List {
+					_content
+				}
+				.listStyle(.insetGrouped)
 			}
 		}
 	}

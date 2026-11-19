@@ -4,6 +4,15 @@
 <dict>
 	<key>ShrubSignBuildSHA</key>
 	<string>$(SHRUBSIGN_BUILD_SHA)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ShrubSign serves signed apps to this device over your local network while installing them, and can download IPAs from addresses you enter.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).userTask.*</string>

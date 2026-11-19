@@ -1,14 +1,28 @@
 
-## ShrubSign 3.1 — Signing is easy with ShrubSign
+## ShrubSign 3.2.2 — Installation that actually installs
 
-- **Quick Sign Pro:** reusable signing presets with optional per-app rules and Quick Sign & Install.
-- **IPA Inspector:** native bundle metadata, executable structure, frameworks, extensions, compatibility notices, and report sharing.
-- **Tweak Studio:** save and reuse selections of actual locally stored tweaks.
-- **Signing Center:** real signing operation outcomes and safe retry navigation.
-- **ShrubLibrary Ultra:** saved apps, available-version comparisons across loaded repositories, and saved-app update notices after manual refresh.
-- **Certificate Lab:** readable provisioning compatibility and expiration checks.
-- **Signing Queue:** safe stop-after-current control for bulk signing.
-- **ShrubCerts:** certificate-store shortcut in Settings and Home (`https://shrubcerts.pages.dev`).
+3.2.2 is an installation-reliability release. The old Semi Local default pointed at a third-party
+manifest service that is no longer online, so installs failed before iOS ever received the app.
+Installation now works from this device first, and every failure explains itself.
+
+- **Semi Local fixed:** the retired `api.palera.in` service is no longer a single point of failure.
+  ShrubSign validates the manifest it is about to hand to iOS, tries every configured HTTPS helper
+  in order, and reports exactly why an attempt failed instead of silently doing nothing.
+- **Fully Local reworked:** ShrubSign generates its own certificate and serves the trust profile over
+  loopback, so installing it is one tap in Settings → Profile Downloaded. A "Verify trust" button
+  checks the real system trust store, Certificate Trust Settings is one tap away, and no restart is
+  required.
+- **Automatic mode (new default):** Fully Local when the profile is trusted, Semi Local otherwise.
+- **Install watchdog:** if iOS never starts the download, ShrubSign says so and offers retry, a mode
+  switch, opening the install page in Safari, or finishing local setup — without leaving the sheet.
+- **Install check:** a real health check (certificate, trust, manifest helper, keep-alive, storage,
+  last result) with copyable diagnostics, plus an installation readiness card on Home.
+- **Bulk installs are sequential:** iOS installs one app at a time; ShrubSign now matches that instead
+  of running several local servers at once.
+- **App Transport Security:** HTTP IPA sources, downloads, and local network installs are no longer
+  blocked by the missing ATS configuration.
+- **UI:** new install card with app name, stage and percentage; the Library list no longer breaks into
+  scattered tiles on iPad.
 
 Note: ShrubSign does not guarantee signing or install success for every IPA/certificate. The app remains based on the upstream open-source project and retains applicable license notices.
 
@@ -55,7 +69,7 @@ Upstream Ksign: https://github.com/nyasami/Ksign
 
 ShrubSign retains the upstream licensing requirements. See `LICENSE`, `LICENSE_ELLEKIT`, bundled acknowledgements, and dependency licenses. Fork branding does not remove or replace upstream copyright or license notices.
 
-# ShrubSign 3.1 acceptance checklist
+# ShrubSign 3.2.2 acceptance checklist
 
 Build using GitHub Actions on macOS/Xcode. Source parsing on Linux does not guarantee SwiftUI type checking or successful device operation.
 
@@ -68,7 +82,7 @@ Build using GitHub Actions on macOS/Xcode. Source parsing on Linux does not guar
 7. Save multiple tweak files, create a Tweak Studio profile, deselect and apply it; verify same saved files are restored.
 8. Refresh ShrubLibrary, save a listing, compare same app across sources, close/reopen app and check favorites persist.
 9. Refresh later after source version changes; verify What's New notices appear only for tracked saved apps.
-10. Verify the existing installation methods with a known-good certificate and supported app. Quick Sign & Install must target the signed app, not an unrelated latest entry.
+10. Verify both install modes with a known-good certificate and supported app. Semi Local: install with internet, then make the helper unreachable and confirm the error names it. Fully Local: install the local profile in one tap, enable trust, run Verify trust, then install in airplane mode. Quick Sign & Install must target the signed app, not an unrelated latest entry.
 11. Verify older releases remain published; IPA has real Payload folder, Info.plist and executable.
 12. Test large IPAs with adequate free space. Inspect signing failures, compare timings and ensure no expired certificate is silently selected.
 

@@ -35,7 +35,36 @@ extension UIApplication {
 		
 		_ = workspace.perform(NSSelectorFromString(openSelector), with: identifier)
 	}
-    
+    /// Returns whether an app with this bundle identifier is installed.
+    /// - Parameter identifier: Bundle identifier
+    /// - Returns: `nil` when the workspace lookup is unavailable
+    static public func appIsInstalled(_ identifier: String) -> Bool? {
+        guard !identifier.isEmpty else { return nil }
+
+        let classNameBase64 = "TFNBcHBsaWNhdGlvbldvcmtzcGFjZQ=="             // LSApplicationWorkspace
+        let defaultSelectorBase64 = "ZGVmYXVsdFdvcmtzcGFjZQ=="               // defaultWorkspace
+        let installedSelectorBase64 = "YXBwbGljYXRpb25Jc0luc3RhbGxlZDo="   // applicationIsInstalled:
+
+        guard
+            let className = String(data: Data(base64Encoded: classNameBase64)!, encoding: .utf8),
+            let defaultSelector = String(data: Data(base64Encoded: defaultSelectorBase64)!, encoding: .utf8),
+            let installedSelectorName = String(data: Data(base64Encoded: installedSelectorBase64)!, encoding: .utf8),
+            let workspaceClass = NSClassFromString(className) as? NSObject.Type,
+            let workspace = workspaceClass.perform(NSSelectorFromString(defaultSelector))?
+                .takeUnretainedValue() as? NSObject
+        else { return nil }
+
+        let selector = NSSelectorFromString(installedSelectorName)
+        guard workspace.responds(to: selector) else { return nil }
+
+        // A BOOL-returning Objective-C method cannot be read through perform()
+        // because that treats the return value as an object. Call it directly.
+        typealias IsInstalledFunction = @convention(c) (NSObject, Selector, NSString) -> Bool
+        let implementation = workspace.method(for: selector)
+        let function = unsafeBitCast(implementation, to: IsInstalledFunction.self)
+        return function(workspace, selector, identifier as NSString)
+    }
+
     
     /// Returns install progress for a bundle identifier (0.0 – 1.0)
     /// - Parameters:

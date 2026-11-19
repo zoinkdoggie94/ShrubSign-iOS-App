@@ -179,17 +179,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     
     private func _configureLocalInstallDefault() {
         let defaults = UserDefaults.standard
-        let migrationKey = "ShrubSign.semiLocalDefaultV1"
-        guard !defaults.bool(forKey: migrationKey) else { return }
-        let serverFolder = URL.documentsDirectory.appendingPathComponent("App/Server")
-        let required = ["server.crt", "server.pem", "commonName.txt"]
-        let hasTrustedSetup = required.allSatisfy {
-            FileManager.default.fileExists(atPath: serverFolder.appendingPathComponent($0).path)
+
+        // 3.2.2: every install used to default to Semi Local, whose external
+        // manifest service is offline. Move once to Automatic, which uses Fully
+        // Local as soon as the local profile is trusted, and keep loopback as
+        // the default host so no local network permission is required.
+        if !defaults.bool(forKey: ShrubInstallKey.migrationV2) {
+            defaults.set(ShrubInstallMode.automatic.rawValue, forKey: ShrubInstallKey.mode)
+            defaults.set(false, forKey: ShrubInstallKey.allowLocalNetwork)
+            defaults.set(true, forKey: ShrubInstallKey.migrationV2)
         }
-        // Protect existing custom Fully Local installations; choose Semi Local
-        // for new installs and for people without complete HTTPS credentials.
-        if !hasTrustedSetup { defaults.set(1, forKey: "Feather.serverMethod") }
-        defaults.set(true, forKey: migrationKey)
+
+        // Create the device certificate early so the one-tap profile is ready
+        // the first time the user opens Installation settings.
+        _ = PersonalSSL.ensureCredentials()
     }
 
     private func _addDefaultCertificates() {

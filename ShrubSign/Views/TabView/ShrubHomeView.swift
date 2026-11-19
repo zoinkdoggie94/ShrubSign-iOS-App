@@ -11,6 +11,7 @@ struct ShrubHomeView: View {
     @State private var isAddingSource = false
     @State private var isURLDownloadPresented = false
     @State private var importError: String?
+    @StateObject private var readiness = ShrubInstallReadiness.shared
 
     @FetchRequest(entity: Imported.entity(), sortDescriptors: [])
     private var importedApps: FetchedResults<Imported>
@@ -32,6 +33,7 @@ struct ShrubHomeView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     dashboardHeader
                     dashboardCounts
+                    installReadyCard
                     quickActions
                     repositoryPreview
                     expirationNotice
@@ -42,6 +44,7 @@ struct ShrubHomeView: View {
                 .frame(maxWidth: .infinity)
             }
             .navigationTitle("Home")
+            .onAppear { readiness.refresh() }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink { ShrubUpdatesView() } label: {
@@ -212,6 +215,39 @@ struct ShrubHomeView: View {
                 actionRow("ShrubCerts · Private Certificates", description: "Visit ShrubCerts for certificate options", icon: "checkmark.shield")
             }.buttonStyle(.plain)
         }
+    }
+
+    private var installReadyCard: some View {
+        NavigationLink {
+            InstallationView()
+        } label: {
+            HStack(spacing: 13) {
+                Image(systemName: readiness.symbol)
+                    .font(.title3)
+                    .foregroundStyle(readiness.tint)
+                    .frame(width: 38, height: 38)
+                    .background(readiness.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(readiness.headline)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(readiness.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
