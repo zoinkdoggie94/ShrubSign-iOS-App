@@ -58,6 +58,19 @@ jobs:
             echo "::group::Compiler errors and failure messages"
             grep -a -nEi -C 3 '(^|[[:space:]])error:|fatal error:|build failed|make: \*\*\*|failed|cannot find|invalid redeclaration|ambiguous use|no such module' "$LOG" | tail -n 180 || true
             echo "::endgroup::"
+            # Also publish the first failures as annotations so a failed build
+            # can be diagnosed from the checks UI without the job log.
+            count=0
+            while IFS= read -r line; do
+              case "$line" in
+                *error:*|*"fatal error:"*|*"no such module"*|*"invalid redeclaration"*|*"ambiguous use"*|*"cannot find"*|*"Build failed"*) ;;
+                *) continue ;;
+              esac
+              clean=$(printf '%s' "$line" | tr -d '\r' | tr -d '\000' | sed -e 's/%/%25/g' -e 's/::/%3A%3A/g' | cut -c1-800)
+              echo "::error title=ShrubSign build error::$clean"
+              count=$((count + 1))
+              [ "$count" -ge 10 ] && break
+            done < <(tr '\r' '\n' < "$LOG")
             echo "::group::Start of the nonempty build log"
             tr '\r' '\n' < "$LOG" | sed '/^[[:space:]]*$/d' | head -n 40 || true
             echo "::endgroup::"
