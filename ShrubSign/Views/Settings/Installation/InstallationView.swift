@@ -112,7 +112,7 @@ extension InstallationView {
                         Spacer(minLength: 0)
 
                         Image(systemName: mode.rawValue == _mode ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(mode.rawValue == _mode ? Color.accentColor : .tertiary)
+                            .foregroundStyle(mode.rawValue == _mode ? Color.accentColor : Color.secondary)
                     }
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
