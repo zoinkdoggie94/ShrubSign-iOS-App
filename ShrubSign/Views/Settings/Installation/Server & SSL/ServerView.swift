@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UIKit
 import NimbleViews
 
 struct ServerView: View {
@@ -107,8 +108,14 @@ struct ServerView: View {
         _message = nil
         do {
             let url = try _readiness.installProfile()
-            _profileSheet = ShrubSheetURL(url: url)
             _message = "Approve the profile in Settings, then enable it under Certificate Trust Settings."
+            // Safari handles configuration profiles reliably; an in-app
+            // browser can only display the XML.
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if !opened {
+                    _profileSheet = ShrubSheetURL(url: url)
+                }
+            }
         } catch {
             _message = error.localizedDescription
         }

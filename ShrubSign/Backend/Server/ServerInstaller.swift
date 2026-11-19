@@ -60,13 +60,16 @@ class ServerInstaller: Identifiable, ObservableObject {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: ShrubInstallKey.mode) }
     }
 
-    /// The mode that will actually be used for the next install.
+    /// The mode that will actually be used first for the next install.
     static func resolvedMode() -> ShrubInstallMode {
         switch mode {
         case .fullyLocal, .localServer:
             return mode
         case .automatic:
-            return (PersonalSSL.hasCredentials && PersonalSSL.isTrusted()) ? .fullyLocal : .localServer
+            // Automatic starts with Semi Local because it only needs internet.
+            // Fully Local is attempted afterwards when the local profile is
+            // installed and trusted, so a bad trust setup cannot break installs.
+            return .localServer
         }
     }
 
@@ -200,11 +203,18 @@ class ServerInstaller: Identifiable, ObservableObject {
         activeManifestURL = nil
         activeProviderName = nil
 
-        switch Self.resolvedMode() {
+        switch Self.mode {
         case .fullyLocal:
             try await _prepareFullyLocal()
-        case .localServer, .automatic:
+        case .localServer:
             try await _prepareLocalServer(bundleID: bundleID)
+        case .automatic:
+            do {
+                try await _prepareLocalServer(bundleID: bundleID)
+            } catch {
+                guard PersonalSSL.hasCredentials, PersonalSSL.isTrusted() else { throw error }
+                try await _prepareFullyLocal()
+            }
         }
 
         guard let page = installPageURL else { throw ShrubInstallError.invalidPage }

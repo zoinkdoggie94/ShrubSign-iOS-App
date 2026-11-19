@@ -39,11 +39,10 @@ extension ServerInstaller {
             app.http.server.configuration.tlsConfiguration = tls
         }
 
-        // Both listeners are reachable by this device. The plain HTTP listener
-        // also serves the install page and the payload, so it binds broadly;
-        // the payload path contains a random UUID and lives only while the
-        // installation sheet is open.
-        let bindingAddress = "0.0.0.0"
+        // Bind loopback unless the user explicitly asked for local network
+        // installs. Binding 0.0.0.0 makes iOS ask for the local network
+        // permission, and refusing it left the install server unreachable.
+        let bindingAddress = allowLocalNetworkInstall() ? "0.0.0.0" : "127.0.0.1"
         app.http.server.configuration.hostname = bindingAddress
         app.http.server.configuration.tcpNoDelay = true
         app.http.server.configuration.address = .hostname(bindingAddress, port: port)

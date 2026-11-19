@@ -37,6 +37,7 @@ struct InstallPreviewView: View {
     @State private var _installRecordID = UUID()
     @State private var _didBeginRecord = false
     @State private var _wasInstalled: Bool?
+    @State private var _didAutoRetry = false
 
     var app: AppInfoPresentable
     var isSharing: Bool
@@ -89,6 +90,11 @@ struct InstallPreviewView: View {
             _install()
         }
         .onDisappear {
+            // Opening Safari backgrounds ShrubSign. Tearing the local server or
+            // the keep-alive audio down here cancels the download iOS just
+            // started, which left installs stuck before they began. Only clean
+            // up when no install is in flight.
+            guard !_didStartHandoff || _didFinish else { return }
             _progressTask?.cancel()
             _progressTask = nil
             _watchdog?.cancel()
@@ -184,6 +190,8 @@ struct InstallPreviewView: View {
             _sheet = nil
 
         case .installing:
+            // Re-arm the keep-alive: the user may be returning from Safari.
+            BackgroundAudioManager.shared.start(force: true)
             _watchdog?.cancel()
             _startWatchdog(seconds: 300, stalledWhileInstalling: true)
             _startProgressPolling()
@@ -233,13 +241,23 @@ struct InstallPreviewView: View {
         Task { @MainActor in
             do {
                 let page = try await installer.prepareInstallHandoff()
-                _sheet = ShrubSheetURL(url: page)
-                _startWatchdog(seconds: 35, stalledWhileInstalling: false)
+                _launchInstall(page)
+                _startWatchdog(seconds: 45, stalledWhileInstalling: false)
             } catch {
                 _didStartHandoff = false
                 installer.stopKeepingAlive()
                 _problem = error.localizedDescription
             }
+        }
+    }
+
+    /// iOS only accepts itms-services from a Safari page. SFSafariViewController
+    /// blocks the scheme, which is why handing the page to an in-app browser
+    /// never started an installation.
+    private func _launchInstall(_ page: URL) {
+        UIApplication.shared.open(page, options: [:]) { opened in
+            guard !opened, _problem == nil else { return }
+            _problem = "Safari could not be opened. Use “Open install page in Safari”, or enter this address in Safari: \(page.absoluteString)"
         }
     }
 
@@ -252,6 +270,14 @@ struct InstallPreviewView: View {
             if case .completed = viewModel.status { return }
             if case .sendingPayload = viewModel.status { return }
             if case .installing = viewModel.status, !stalledWhileInstalling { return }
+
+            // One silent retry through the same validated path before asking
+            // the user to do anything.
+            if !_didAutoRetry {
+                _didAutoRetry = true
+                _retry()
+                return
+            }
 
             _problem = stalledWhileInstalling
                 ? "iOS has been installing for a while without reporting progress. If the app is not on your Home Screen, try again."

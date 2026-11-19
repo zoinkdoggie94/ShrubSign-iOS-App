@@ -40,7 +40,7 @@ enum ShrubInstallMode: Int, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .automatic:
-            return "Picks Fully Local when the trust profile is active, otherwise Semi Local."
+            return "Installs with Semi Local first, then falls back to Fully Local when the local profile is trusted."
         case .fullyLocal:
             return "The manifest and the IPA are served from this device over trusted HTTPS. Works offline."
         case .localServer:
