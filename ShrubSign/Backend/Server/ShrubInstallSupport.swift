@@ -129,11 +129,6 @@ struct ShrubManifestProvider: Identifiable {
         port: Int
     ) -> URL? {
         switch id {
-        case "otame":
-            // SignTools ota-me publishes one static HTTPS manifest per port and
-            // serves the package from http://127.0.0.1:<port>/ota-me.
-            guard port > 0, port <= 10_000 else { return nil }
-            return URL(string: "https://signtools.github.io/ota-me/data/\(port)")
         default:
             guard var components = URLComponents(string: detail) else { return nil }
             var items = components.queryItems ?? []
@@ -153,12 +148,11 @@ enum ShrubManifestProviders {
     /// Ordered best first. Each candidate is validated against the manifest the
     /// system installer would fetch before ShrubSign hands the link to iOS.
     static var all: [ShrubManifestProvider] {
+        // Only services that embed the real bundle identifier are listed. A
+        // manifest whose metadata does not describe the package (the old
+        // SignTools ota-me template reported com.foo.bar / "Local app") makes
+        // iOS abort the download and install nothing.
         var providers: [ShrubManifestProvider] = [
-            ShrubManifestProvider(
-                id: "otame",
-                name: "SignTools ota-me",
-                detail: "Static HTTPS manifest hosted on GitHub Pages"
-            ),
             ShrubManifestProvider(
                 id: "palera",
                 name: "Palera plist service",

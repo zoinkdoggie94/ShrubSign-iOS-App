@@ -205,15 +205,17 @@ class ServerInstaller: Identifiable, ObservableObject {
 
         switch Self.mode {
         case .fullyLocal:
-            try await _prepareFullyLocal()
+            try await _prepareFullyLocal(bundleID: bundleID)
         case .localServer:
             try await _prepareLocalServer(bundleID: bundleID)
         case .automatic:
             do {
                 try await _prepareLocalServer(bundleID: bundleID)
             } catch {
+                // The device-local HTTPS server is the reliable fallback: it
+                // needs no online helper and always describes this exact app.
                 guard PersonalSSL.hasCredentials, PersonalSSL.isTrusted() else { throw error }
-                try await _prepareFullyLocal()
+                try await _prepareFullyLocal(bundleID: bundleID)
             }
         }
 
@@ -221,7 +223,7 @@ class ServerInstaller: Identifiable, ObservableObject {
         return page
     }
 
-    private func _prepareFullyLocal() async throws {
+    private func _prepareFullyLocal(bundleID: String) async throws {
         guard port > 0 else { throw ShrubInstallError.localServerUnavailable }
         guard PersonalSSL.hasCredentials else { throw ShrubInstallError.profileMissing }
         guard isSecureServerRunning, securePort > 0 else {
@@ -230,7 +232,7 @@ class ServerInstaller: Identifiable, ObservableObject {
         guard PersonalSSL.isTrusted() else { throw ShrubInstallError.trustRequired }
 
         let url = manifestURL(secure: true)
-        try await Self.validateManifest(at: url)
+        try await Self.validateManifest(at: url, expectedBundleID: bundleID)
         activeManifestURL = url
         activeProviderName = "This device (HTTPS)"
     }
@@ -255,7 +257,7 @@ class ServerInstaller: Identifiable, ObservableObject {
                 continue
             }
             do {
-                try await Self.validateManifest(at: url)
+                try await Self.validateManifest(at: url, expectedBundleID: bundleID)
                 activeManifestURL = url
                 activeProviderName = provider.name
                 return
@@ -272,7 +274,7 @@ class ServerInstaller: Identifiable, ObservableObject {
 
     /// Fetches the manifest exactly the way the system installer will and
     /// verifies that it describes a software package.
-    static func validateManifest(at url: URL) async throws {
+    static func validateManifest(at url: URL, expectedBundleID: String? = nil) async throws {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 12
@@ -303,6 +305,18 @@ class ServerInstaller: Identifiable, ObservableObject {
             else {
                 throw ShrubInstallError.invalidManifest(
                     "\(url.host ?? "The manifest server") did not return a valid installation manifest."
+                )
+            }
+
+            // iOS refuses a package whose bundle identifier differs from the
+            // manifest, and shows the manifest title in the install prompt.
+            // Catching that here prevents a silent failure on the device.
+            if let expectedBundleID, !expectedBundleID.isEmpty,
+               let metadata = items[0]["metadata"] as? [String: Any],
+               let reported = metadata["bundle-identifier"] as? String,
+               !reported.isEmpty, reported != expectedBundleID {
+                throw ShrubInstallError.invalidManifest(
+                    "\(url.host ?? "The manifest server") described \(reported) instead of \(expectedBundleID)."
                 )
             }
         } catch let error as ShrubInstallError {

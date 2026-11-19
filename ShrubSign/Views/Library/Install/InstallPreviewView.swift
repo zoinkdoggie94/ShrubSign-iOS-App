@@ -38,6 +38,7 @@ struct InstallPreviewView: View {
     @State private var _didBeginRecord = false
     @State private var _wasInstalled: Bool?
     @State private var _didAutoRetry = false
+    @State private var _backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     var app: AppInfoPresentable
     var isSharing: Bool
@@ -99,6 +100,7 @@ struct InstallPreviewView: View {
             _progressTask = nil
             _watchdog?.cancel()
             _watchdog = nil
+            _endBackgroundTask()
             BackgroundAudioManager.shared.stop()
         }
     }
@@ -184,10 +186,14 @@ struct InstallPreviewView: View {
             break
 
         case .sendingPayload:
-            _watchdog?.cancel()
-            _watchdog = nil
+            // iOS is fetching the IPA from this app. Keep the process alive for
+            // the whole transfer or the response stalls at half progress.
             _problem = nil
             _sheet = nil
+            _beginBackgroundTask()
+            BackgroundAudioManager.shared.start(force: true)
+            _watchdog?.cancel()
+            _startWatchdog(seconds: 180, stalledWhileInstalling: true)
 
         case .installing:
             // Re-arm the keep-alive: the user may be returning from Safari.
@@ -221,6 +227,7 @@ struct InstallPreviewView: View {
         if let error {
             _problem = error.localizedDescription
         }
+        _endBackgroundTask()
         BackgroundAudioManager.shared.stop()
 
         // Keep the local server alive briefly so iOS can finish reading the
@@ -237,6 +244,7 @@ struct InstallPreviewView: View {
         guard !_didStartHandoff, _problem == nil else { return }
         _didStartHandoff = true
         installer.keepServerAliveDuringInstall()
+        _beginBackgroundTask()
 
         Task { @MainActor in
             do {
@@ -259,6 +267,22 @@ struct InstallPreviewView: View {
             guard !opened, _problem == nil else { return }
             _problem = "Safari could not be opened. Use “Open install page in Safari”, or enter this address in Safari: \(page.absoluteString)"
         }
+    }
+
+    /// Holds a background task for the hand-off so an interrupted audio
+    /// session cannot suspend ShrubSign while iOS reads the payload.
+    private func _beginBackgroundTask() {
+        guard _backgroundTask == .invalid else { return }
+        _backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "ShrubSignInstall") {
+            _endBackgroundTask()
+        }
+    }
+
+    private func _endBackgroundTask() {
+        let identifier = _backgroundTask
+        guard identifier != .invalid else { return }
+        _backgroundTask = .invalid
+        UIApplication.shared.endBackgroundTask(identifier)
     }
 
     private func _startWatchdog(seconds: UInt64, stalledWhileInstalling: Bool) {
