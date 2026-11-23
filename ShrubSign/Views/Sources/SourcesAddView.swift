@@ -62,8 +62,18 @@ struct SourcesAddView: View {
 						placement: .confirmationAction,
 						isDisabled: _sourceURL.isEmpty
 					) {
-						FR.handleSource(_sourceURL) {
-							dismiss()
+						guard !_isImporting else { return }
+						_isImporting = true
+						FR.handleSourceWithResult(_sourceURL) { result in
+							_isImporting = false
+							switch result {
+							case .success:
+								UINotificationFeedbackGenerator().notificationOccurred(.success)
+								dismiss()
+							case .failure(let error):
+								UINotificationFeedbackGenerator().notificationOccurred(.error)
+								UIAlertController.showAlertWithOk(title: .localized("Add Source"), message: error.localizedDescription)
+							}
 						}
 					}
 				} else {

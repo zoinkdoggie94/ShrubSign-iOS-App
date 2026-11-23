@@ -205,29 +205,56 @@ enum FR {
 		_ urlString: String,
 		competion: @escaping () -> Void
 	) {
-		guard let url = URL(string: urlString) else { return }
-		
-		NBFetchService().fetch<ASRepository>(from: url) { (result: Result<ASRepository, Error>) in
+		handleSourceWithResult(urlString) { result in
 			switch result {
-			case .success(let data):
-				let id = data.id ?? url.absoluteString
-				
-				if !Storage.shared.sourceExists(id) {
-					Storage.shared.addSource(url, repository: data, id: id) { _ in
-						competion()
-					}
-				} else {
-					DispatchQueue.main.async {
-						UIAlertController.showAlertWithOk(title: "Error", message: "Repository already added.")
-					}
-				}
+			case .success:
+				competion()
 			case .failure(let error):
-				DispatchQueue.main.async {
-					UIAlertController.showAlertWithOk(title: "Error", message: error.localizedDescription)
+				UIAlertController.showAlertWithOk(title: "Repository", message: error.localizedDescription)
+			}
+		}
+	}
+
+	/// Always calls back on the main thread, including failed validations.
+	/// Core Data's viewContext must never be used on URLSession callback queues.
+	static func handleSourceWithResult(
+		_ urlString: String,
+		completion: @escaping (Result<Void, Error>) -> Void
+	) {
+		let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard let url = URL(string: trimmed),
+			  ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+			  url.host != nil else {
+			DispatchQueue.main.async {
+				completion(.failure(NSError(domain: "ShrubSign.Source", code: 1,
+					userInfo: [NSLocalizedDescriptionKey: "Enter a valid http or https repository URL."])))
+			}
+			return
+		}
+		NBFetchService().fetch(from: url) { (result: Result<ASRepository, Error>) in
+			DispatchQueue.main.async {
+				switch result {
+				case .success(let repository):
+					let identifier = repository.id ?? url.absoluteString
+					guard !Storage.shared.sourceExists(identifier) else {
+						completion(.failure(NSError(domain: "ShrubSign.Source", code: 2,
+							userInfo: [NSLocalizedDescriptionKey: "This repository is already in your sources."])))
+						return
+					}
+					Storage.shared.addSource(url, repository: repository, id: identifier) { error in
+						if let error {
+							completion(.failure(error))
+						} else {
+							completion(.success(()))
+						}
+					}
+				case .failure(let error):
+					completion(.failure(error))
 				}
 			}
 		}
 	}
+
 }
 
 private enum CertificateHandlerError: Error {
