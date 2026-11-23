@@ -37,7 +37,6 @@ struct InstallPreviewView: View {
     @State private var _installRecordID = UUID()
     @State private var _didBeginRecord = false
     @State private var _wasInstalled: Bool?
-    @State private var _didAutoRetry = false
     @State private var _backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     var app: AppInfoPresentable
@@ -62,13 +61,27 @@ struct InstallPreviewView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     InstallProgressView(app: app, viewModel: viewModel)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 19, style: .continuous))
 
                     if let problem = _problem {
                         _problemCard(problem)
                     } else if _didStartHandoff, !viewModel.isCompleted {
-                        Label("Waiting for iOS to start the installation…", systemImage: "hourglass")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            Image(systemName: "iphone.gen3.radiowaves.left.and.right")
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Handed off to iOS")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Confirm the system prompt, then return here to follow progress.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(14)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 14))
                     }
 
                     _actions()
@@ -193,7 +206,7 @@ struct InstallPreviewView: View {
             _beginBackgroundTask()
             BackgroundAudioManager.shared.start(force: true)
             _watchdog?.cancel()
-            _startWatchdog(seconds: 180, stalledWhileInstalling: true)
+            _startWatchdog(seconds: 360, stalledWhileInstalling: true)
 
         case .installing:
             // Re-arm the keep-alive: the user may be returning from Safari.
@@ -254,6 +267,8 @@ struct InstallPreviewView: View {
             } catch {
                 _didStartHandoff = false
                 installer.stopKeepingAlive()
+                _endBackgroundTask()
+                BackgroundAudioManager.shared.stop()
                 _problem = error.localizedDescription
             }
         }
@@ -265,6 +280,9 @@ struct InstallPreviewView: View {
     private func _launchInstall(_ page: URL) {
         UIApplication.shared.open(page, options: [:]) { opened in
             guard !opened, _problem == nil else { return }
+            _didStartHandoff = false
+            installer.stopKeepingAlive()
+            _endBackgroundTask()
             _problem = "Safari could not be opened. Use “Open install page in Safari”, or enter this address in Safari: \(page.absoluteString)"
         }
     }
@@ -288,24 +306,20 @@ struct InstallPreviewView: View {
     private func _startWatchdog(seconds: UInt64, stalledWhileInstalling: Bool) {
         _watchdog?.cancel()
         _watchdog = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
-            guard !Task.isCancelled, _problem == nil else { return }
-
+            do { try await Task.sleep(nanoseconds: seconds * 1_000_000_000) }
+            catch { return }
+            guard !Task.isCancelled, !_didFinish, _problem == nil else { return }
             if case .completed = viewModel.status { return }
-            if case .sendingPayload = viewModel.status { return }
-            if case .installing = viewModel.status, !stalledWhileInstalling { return }
-
-            // One silent retry through the same validated path before asking
-            // the user to do anything.
-            if !_didAutoRetry {
-                _didAutoRetry = true
-                _retry()
-                return
+            if case .broken = viewModel.status { return }
+            if !stalledWhileInstalling {
+                if case .sendingPayload = viewModel.status { return }
+                if case .installing = viewModel.status { return }
             }
-
+            // A silent retry would generate a second iOS installation prompt.
+            // Only explicit Try again can send another request.
             _problem = stalledWhileInstalling
-                ? "iOS has been installing for a while without reporting progress. If the app is not on your Home Screen, try again."
-                : "iOS opened the installer but did not start the download. This usually means the manifest could not be fetched or the local server stopped."
+                ? "iOS has not reported progress for a while. Check your Home Screen, then tap Try again if the installation is missing."
+                : "iOS has not started downloading. Check the first prompt in Safari, then tap Try again here if needed."
         }
     }
 
@@ -316,6 +330,10 @@ struct InstallPreviewView: View {
         _didFinish = false
         _watchdog?.cancel()
         _watchdog = nil
+        _progressTask?.cancel()
+        _progressTask = nil
+        _endBackgroundTask()
+        installer.stopKeepingAlive()
 
         if installer.packageUrl == nil {
             _didPreparePackage = false
@@ -455,11 +473,14 @@ struct InstallPreviewView: View {
                 }
 
                 if hasStarted && rawProgress == 0 {
-                    await MainActor.run {
-                        viewModel.installProgress = 1.0
-                        viewModel.status = .completed(.success(()))
+                    // A progress reset alone is not proof of success.
+                    if UIApplication.appIsInstalled(bundleID) == true {
+                        await MainActor.run {
+                            viewModel.installProgress = 1.0
+                            viewModel.status = .completed(.success(()))
+                        }
+                        break
                     }
-                    break
                 }
 
                 // Some iOS builds do not publish install progress for apps

@@ -11,8 +11,6 @@ import SwiftUI
 import IDeviceSwift
 
 struct InstallProgressView: View {
-    @State private var _isPulsing = false
-
     var app: AppInfoPresentable
     @ObservedObject var viewModel: InstallerStatusViewModel
 
@@ -71,48 +69,19 @@ struct InstallProgressView: View {
     @ViewBuilder
     private func _appIcon() -> some View {
         ZStack {
+            Circle().stroke(Color.accentColor.opacity(0.15), lineWidth: 4)
+            Circle()
+                .trim(from: 0, to: max(0.015, progress))
+                .stroke(statusTint == .red ? Color.red : Color.accentColor,
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut(duration: 0.25), value: progress)
             FRAppIconView(app: app, size: 56)
-                .opacity(0.2)
-                .foregroundStyle(Color.black)
-
-            FRAppIconView(app: app, size: 56)
-                .mask(
-                    ZStack {
-                        Circle().strokeBorder(Color.white, lineWidth: 4.5)
-                        PieShape(progress: progress)
-                            .scaleEffect(viewModel.isCompleted ? 2.2 : 1)
-                            .animation(.smooth, value: viewModel.isCompleted)
-                    }
-                )
-                .scaleEffect(_isPulsing ? 0.94 : 1.0)
-                .animation(
-                    .easeInOut(duration: 1.4).repeatForever(autoreverses: true),
-                    value: _isPulsing
-                )
-                .onAppear { _isPulsing = true }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
+        .frame(width: 74, height: 74)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(app.name ?? "App"), \(Int((progress * 100).rounded())) percent")
     }
 
-    struct PieShape: Shape {
-        var progress: Double
-
-        func path(in rect: CGRect) -> Path {
-            var path = Path()
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            let radius = min(rect.width, rect.height) / 2
-            let startAngle = Angle(degrees: -90)
-            let endAngle = Angle(degrees: -90 + progress * 360)
-
-            path.move(to: center)
-            path.addArc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: false)
-            path.closeSubpath()
-
-            return path
-        }
-
-        var animatableData: Double {
-            get { progress }
-            set { progress = newValue }
-        }
-    }
 }

@@ -83,62 +83,98 @@ extension ServerInstaller {
     }
 
     // MARK: - Page
+    /// Safari cannot be force-closed by an external app. Make one install
+    /// request per attempt and offer an explicit way back to ShrubSign.
     var _installPage: String {
         let displayName = Self.escapeHTML(app.name ?? "your app")
         let provider = Self.escapeHTML(activeProviderName ?? "Automatic")
-        let link = handoffLink
-        let href = Self.escapeHTML(link)
+        let href = Self.escapeHTML(handoffLink)
+        let attemptKey = "shrubsign-install-\(id.uuidString)"
         return """
         <!doctype html>
-        <html>
+        <html lang="en">
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-        <title>ShrubSign Install</title>
+        <meta name="color-scheme" content="dark">
+        <title>ShrubSign · Install \(displayName)</title>
         <style>
-        :root { color-scheme: light dark; }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0; min-height: 100vh; display: flex; align-items: center;
-            justify-content: center; padding: 28px;
-            font: -apple-system-body;
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-            background: #0b0d0c; color: #f4f7f4;
-        }
-        .card {
-            width: 100%; max-width: 420px; padding: 26px; border-radius: 24px;
-            background: linear-gradient(160deg, rgba(114,232,148,0.20), rgba(114,232,148,0.04));
-            border: 1px solid rgba(114,232,148,0.28);
-            text-align: center;
-        }
-        h1 { font-size: 21px; margin: 0 0 10px; letter-spacing: -0.02em; }
-        p { font-size: 15px; line-height: 1.45; margin: 8px 0; color: #d7ded9; }
-        a {
-            display: inline-block; margin-top: 14px; padding: 13px 24px; border-radius: 14px;
-            background: #72e894; color: #06230f; font-weight: 700; text-decoration: none;
-        }
-        .hint { font-size: 12.5px; color: #9aa59e; margin-top: 16px; }
+          :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+          * { box-sizing: border-box; }
+          body { margin: 0; min-height: 100dvh; padding: max(22px, env(safe-area-inset-top)) 22px max(22px, env(safe-area-inset-bottom));
+                 background: #0e1210; color: #eef4ef; display: grid; place-items: center; }
+          main { width: min(100%, 410px); }
+          .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+                   font-weight: 750; font-size: 12px; letter-spacing: .12em; color: #b7c7bb; }
+          .mark { width: 30px; height: 30px; background: #254431; border-radius: 9px; color: #98f0b2;
+                  display: grid; place-items: center; font-size: 19px; }
+          section { padding: 25px 23px; background: #19211c; border: 1px solid #2e3b32; border-radius: 22px; }
+          .eyebrow { font-size: 12px; font-weight: 700; color: #9fe8b1; letter-spacing: .05em; text-transform: uppercase; }
+          h1 { margin: 9px 0 12px; font-size: clamp(22px, 6vw, 27px); line-height: 1.18; letter-spacing: -.035em;
+               overflow-wrap: anywhere; }
+          p { color: #bbcbc0; font-size: 14px; line-height: 1.55; margin: 0; }
+          .steps { display: grid; gap: 13px; margin: 19px 0; padding: 17px 0;
+                   border-top: 1px solid #2e3b32; border-bottom: 1px solid #2e3b32; }
+          .step { display: flex; gap: 12px; font-size: 14px; align-items: flex-start; color: #dfebe2; }
+          .number { flex: 0 0 23px; height: 23px; border-radius: 50%; display: grid; place-items: center;
+                    background: #2e4837; color: #a1ebb3; font-size: 12px; font-weight: 700; }
+          a { text-decoration: none; }
+          .action { display: block; padding: 14px; text-align: center; border-radius: 12px;
+                    background: #90e6a6; color: #12291b; font-size: 15px; font-weight: 750; }
+          .action.disabled { pointer-events: none; color: #b4c2b8; background: #384a3e; }
+          .return { display: block; padding: 10px; margin-top: 10px; text-align: center;
+                    color: #bce9c7; font-size: 14px; font-weight: 600; }
+          #status { min-height: 47px; margin: 13px 0 0; font-size: 13px; }
+          footer { color: #899a8e; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 17px; }
         </style>
         </head>
         <body>
-        <div class="card">
-            <h1>Installing \(displayName)</h1>
-            <p>ShrubSign is handing this app to iOS.</p>
-            <a id="manual" href="\(href)">Install now</a>
-            <p class="hint">If the installer does not appear, tap the button above.</p>
-            <p class="hint">Keep ShrubSign open until the installation starts · \(provider)</p>
-        </div>
-        <script>
-        var target = "\(link)";
-        function go() { try { window.location.replace(target); } catch (error) {} }
-        document.getElementById('manual').addEventListener('click', function (event) {
-            event.preventDefault();
-            go();
-        });
-        go();
-        setTimeout(go, 1500);
-        setTimeout(go, 4000);
-        </script>
+          <main>
+            <div class="brand"><span class="mark">✳</span> SHRUBSIGN</div>
+            <section>
+              <div class="eyebrow">Ready to install</div>
+              <h1>\(displayName)</h1>
+              <p>Approve the iOS installation prompt to install your signed IPA.</p>
+              <div class="steps">
+                <div class="step"><span class="number">1</span><span>Tap “Open in iTunes” if asked.</span></div>
+                <div class="step"><span class="number">2</span><span>Confirm “Install” in the system prompt.</span></div>
+                <div class="step"><span class="number">3</span><span>Return to ShrubSign for progress.</span></div>
+              </div>
+              <a id="manual" class="action" href="\(href)">Request installation</a>
+              <p id="status" role="status" aria-live="polite">Preparing a single install request…</p>
+              <a class="return" href="shrubsign://install-return">Return to ShrubSign</a>
+            </section>
+            <footer>\(provider) · Keep ShrubSign available until the IPA transfer completes.</footer>
+          </main>
+          <script>
+          (function () {
+            'use strict';
+            const key = '\(attemptKey)';
+            const button = document.getElementById('manual');
+            const status = document.getElementById('status');
+            let sent = false;
+            try { sent = sessionStorage.getItem(key) === 'sent'; } catch (_) {}
+            function render() {
+              if (sent) {
+                button.classList.add('disabled');
+                button.setAttribute('aria-disabled', 'true');
+                button.textContent = 'Install request sent';
+                status.textContent = 'Check the iOS prompt. If it did not appear, return to ShrubSign and tap Try again.';
+              }
+            }
+            function requestOnce(event) {
+              if (event) event.preventDefault();
+              if (sent) return;
+              sent = true;
+              try { sessionStorage.setItem(key, 'sent'); } catch (_) {}
+              render();
+              window.location.replace(button.href);
+            }
+            button.addEventListener('click', requestOnce);
+            render();
+            if (!sent) setTimeout(requestOnce, 350);
+          }());
+          </script>
         </body>
         </html>
         """
