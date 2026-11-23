@@ -87,7 +87,7 @@ struct AboutShrubSignView: View {
 	private func _showPatchNotes() {
 		UIAlertController.showAlertWithOk(
 			title: "ShrubSign \(Bundle.main.version)",
-			message: "ShrubSign 3.0 focuses on reliability and speed: safer repository browsing, persistent ShrubLibrary cache restoration, single-pass tweak injection, clearer signing failures, more reliable installation handling, richer certificate details, UI polish, and release builds that keep older IPAs available.",
+			message: "ShrubSign 3.2.5 fixes repeated iOS installation prompts, improves the Safari handoff and install page, strengthens install progress checks, fixes repository-import issues and download races, and polishes the installation experience.",
 			isCancel: true,
 			thankYou: true
 		)
