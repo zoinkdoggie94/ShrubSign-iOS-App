@@ -102,6 +102,12 @@ class IPADownloadManager: NSObject, ObservableObject {
     }
 
     func startDownload(url: URL, filename: String) {
+        // Manifest requests can complete off-main. Insert the visible row before
+        // resuming the URLSession task so callbacks cannot lose a fast download.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.startDownload(url: url, filename: filename) }
+            return
+        }
         guard !downloadItems.contains(where: { !$0.isFinished && $0.url == url }) else { return }
         let fileManager = FileManager.default
         let downloadDirectory = URL.documentsDirectory.appendingPathComponent("Downloads")
@@ -125,10 +131,8 @@ class IPADownloadManager: NSObject, ObservableObject {
             bytesDownloaded: 0
         )
         
-        DispatchQueue.main.async {
-            self.downloadItems.insert(item, at: 0)
-        }
-        
+        downloadItems.insert(item, at: 0)
+
         let task = urlSession.downloadTask(with: url)
         
         activeDownloads[task.taskIdentifier] = item.id.uuidString

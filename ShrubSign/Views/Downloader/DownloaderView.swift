@@ -206,6 +206,20 @@ Enter the URL of the website containing the IPA file (Direct install/ITMS Servic
         guard !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         
         var finalUrl = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if finalUrl.lowercased().hasPrefix("itms-services://") {
+            guard let manifestLink = URL(string: finalUrl) else {
+                UIAlertController.showAlertWithOk(title: .localized("Error"), message: "Invalid installation manifest URL.")
+                return
+            }
+            downloadManager.handleITMSServicesURL(manifestLink) { result in
+                DispatchQueue.main.async {
+                    if case .failure(let error) = result {
+                        UIAlertController.showAlertWithOk(title: .localized("Error"), message: error.localizedDescription)
+                    }
+                }
+            }
+            return
+        }
         if !finalUrl.lowercased().hasPrefix("http://") && !finalUrl.lowercased().hasPrefix("https://") {
             finalUrl = "https://" + finalUrl
         }

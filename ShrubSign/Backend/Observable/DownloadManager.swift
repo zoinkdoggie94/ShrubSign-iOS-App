@@ -111,8 +111,21 @@ class DownloadManager: NSObject, ObservableObject {
 		id: String = UUID().uuidString
 	) -> Download {
         if let existingDownload = downloads.first(where: { $0.url == url }) {
-            resumeDownload(existingDownload)
-            return existingDownload
+            if let task = existingDownload.task {
+                switch task.state {
+                case .running, .canceling:
+                    // The existing request is already in flight.
+                    return existingDownload
+                case .suspended:
+                    task.resume()
+                    return existingDownload
+                case .completed:
+                    break
+                @unknown default:
+                    return existingDownload
+                }
+            }
+            downloads.removeAll { $0.id == existingDownload.id }
         }
         print(id)
 		let download = Download(id: id, url: url)
@@ -141,19 +154,19 @@ class DownloadManager: NSObject, ObservableObject {
 	}
     
     func resumeDownload(_ download: Download) {
-        if let resumeData = download.resumeData {
-            let task = _session.downloadTask(withResumeData: resumeData)
-            download.task = task
+        guard let task = download.task else { return }
+        switch task.state {
+        case .suspended:
             task.resume()
             _updateBackgroundAudioState()
-        } else if let url = download.task?.originalRequest?.url {
-            let task = _session.downloadTask(with: url)
-            download.task = task
-            task.resume()
-            _updateBackgroundAudioState()
+        case .running, .canceling, .completed:
+            // Resuming an active transfer was making a second concurrent download.
+            return
+        @unknown default:
+            return
         }
     }
-    
+
     func cancelDownload(_ download: Download) {
         download.task?.cancel()
         
@@ -213,6 +226,10 @@ extension DownloadManager: URLSessionDownloadDelegate {
 				if let dl = dl, let index = DownloadManager.shared.getDownloadIndex(by: dl.id) {
 					DownloadManager.shared.downloads.remove(at: index)
 				}
+                DownloadManager.shared._updateBackgroundAudioState()
+                if #available(iOS 26.0, *), let dl {
+                    BackgroundTaskManager.shared.stopTask(for: dl.id, success: err == nil)
+                }
 				if err == nil {
 					self._notifyDownloadCompleted(fileName: url.lastPathComponent)
 				}
