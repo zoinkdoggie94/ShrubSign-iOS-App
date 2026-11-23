@@ -87,8 +87,14 @@ extension Storage {
 			)
 		}
 		
-        saveContext()
-        completion(nil)
+        // A successful callback must mean the new sources were persisted.
+        do {
+            if context.hasChanges { try context.save() }
+            completion(nil)
+        } catch {
+            context.rollback()
+            completion(error)
+        }
 	}
 
 

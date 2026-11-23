@@ -24,6 +24,7 @@ final class SourcesViewModel: ObservableObject {
     }
 
     private let _dataService = NBFetchService()
+    @MainActor private var activeFetchCount = 0
 
     @Published var isFinished = true
     @Published var sources: [AltSource: ASRepository] = [:]
@@ -40,9 +41,15 @@ final class SourcesViewModel: ObservableObject {
         let sourcesToFetch = refresh ? requested : requested.filter { self.sources[$0] == nil }
         guard !sourcesToFetch.isEmpty else { return }
 
-        await MainActor.run { self.isFinished = false }
+        await MainActor.run {
+            self.activeFetchCount += 1
+            self.isFinished = false
+        }
         defer {
-            Task { @MainActor in self.isFinished = true }
+            Task { @MainActor in
+                self.activeFetchCount = max(0, self.activeFetchCount - 1)
+                self.isFinished = self.activeFetchCount == 0
+            }
         }
 
         // Fetch a small batch at a time. More concurrency made large source lists

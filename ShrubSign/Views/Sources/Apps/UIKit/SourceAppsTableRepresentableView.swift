@@ -160,7 +160,7 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
                 $0.app.currentDate?.date.stripTime() ?? .distantPast
             }
             
-            let sortedDates = grouped.keys.sorted(by: { sortAscending ? $0 > $1 : $0 < $1 })
+            let sortedDates = grouped.keys.sorted(by: { sortAscending ? $0 < $1 : $0 > $1 })
             
             _groupedAppsByDate = grouped.reduce(into: [:]) { result, pair in
                 let key = formatter.string(from: pair.key)
@@ -173,8 +173,8 @@ extension SourceAppsTableRepresentableView { class Coordinator: NSObject, UITabl
             let sorted = filtered.sorted {
                 let n1 = $0.app.name ?? ""
                 let n2 = $1.app.name ?? ""
-                let comparison = n1.localizedCaseInsensitiveCompare(n2) == .orderedAscending
-                return sortAscending ? comparison : !comparison
+                let comparison = n1.localizedCaseInsensitiveCompare(n2)
+                return sortAscending ? comparison == .orderedAscending : comparison == .orderedDescending
             }
             _groupedAppsByNameFirstLetter = Dictionary(grouping: sorted) {
                 let first = $0.app.name?.trimmingCharacters(in: .whitespacesAndNewlines).first?.uppercased() ?? "#"

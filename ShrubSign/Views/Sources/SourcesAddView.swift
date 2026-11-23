@@ -34,13 +34,12 @@ struct SourcesAddView: View {
 				
 				Section {
 					Button(.localized("Import"), systemImage: "square.and.arrow.down") {
-						_isImporting = true
 						_addCode(UIPasteboard.general.string) {
 							UINotificationFeedbackGenerator().notificationOccurred(.success)
 							dismiss()
 						}
-						
 					}
+					.disabled(_isImporting)
 					
 					Button(.localized("Export"), systemImage: "doc.on.clipboard") {
 						UIPasteboard.general.string = Storage.shared.getSources().compactMap {
@@ -76,65 +75,75 @@ struct SourcesAddView: View {
 		}
 	}
 	
-	private func _addCode(
-		_ code: String?,
-		competion: @escaping () -> Void
-	) {
-		guard let code else { return }
-		
+	private func _addCode(_ code: String?, completion: @escaping () -> Void) {
+		guard !_isImporting else { return }
+		guard let code, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+			UIAlertController.showAlertWithOk(title: .localized("Import"), message: "Copy repository URLs first, then try again.")
+			return
+		}
 		let handler = ASDeobfuscator(with: code)
-		let repoUrls = handler.decode().compactMap { URL(string: $0) }
+		let urls = handler.decode().compactMap { URL(string: $0) }.filter {
+			["http", "https"].contains($0.scheme?.lowercased() ?? "") && $0.host != nil
+		}
+		var seen = Set<URL>()
+		let repoURLs = urls.filter { seen.insert($0).inserted }
+		guard !repoURLs.isEmpty else {
+			UIAlertController.showAlertWithOk(title: .localized("Import"), message: "No valid repository URLs were found in your clipboard.")
+			return
+		}
+		_isImporting = true
 
-		guard !repoUrls.isEmpty else { return }
-		
 		actor RepositoryCollector {
 			private var repositories: [URL: ASRepository] = [:]
-			
-			func add(url: URL, repository: ASRepository) {
-				repositories[url] = repository
-			}
-			
-			func getAllRepositories() -> [URL: ASRepository] {
-				return repositories
-			}
+			func add(url: URL, repository: ASRepository) { repositories[url] = repository }
+			func getAllRepositories() -> [URL: ASRepository] { repositories }
 		}
-		
-		let dataService = _dataService
 		let collector = RepositoryCollector()
-		
 		Task {
-			await withTaskGroup(of: Void.self) { group in
-				for url in repoUrls {
-					group.addTask {
-						await withCheckedContinuation { continuation in
-							Task { @MainActor in
-								dataService.fetch<ASRepository>(from: url) { (result: RepositoryDataHandler) in
+			// Three sources at a time prevents memory spikes with pasted lists.
+			for start in stride(from: 0, to: repoURLs.count, by: 3) {
+				let batch = Array(repoURLs[start..<min(start + 3, repoURLs.count)])
+				await withTaskGroup(of: Void.self) { group in
+					for url in batch {
+						group.addTask {
+							let service = NBFetchService()
+							await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+								service.fetch(from: url) { (result: RepositoryDataHandler) in
 									switch result {
-									case .success(let data):
+									case .success(let repository):
 										Task {
-											await collector.add(url: url, repository: data)
+											// Do not resume until this insertion is actually done.
+											await collector.add(url: url, repository: repository)
+											continuation.resume()
 										}
 									case .failure(let error):
-										print("Failed to fetch \(url): \(error)")
+										print("Failed to import \(url): \(error.localizedDescription)")
+										continuation.resume()
 									}
-									continuation.resume()
 								}
 							}
 						}
 					}
 				}
-				
-				await group.waitForAll()
 			}
-			
 			let repositories = await collector.getAllRepositories()
-			
 			await MainActor.run {
-				Storage.shared.addSources(repos: repositories) { _ in
-					competion()
+				guard !repositories.isEmpty else {
+					_isImporting = false
+					UIAlertController.showAlertWithOk(title: .localized("Import"), message: "No repositories could be loaded. Check the URLs and try again.")
+					return
+				}
+				Storage.shared.addSources(repos: repositories) { error in
+					_isImporting = false
+					if let error {
+						UIAlertController.showAlertWithOk(title: .localized("Import"), message: error.localizedDescription)
+					} else {
+						completion()
+					}
 				}
 			}
 		}
 	}
+
 }
 

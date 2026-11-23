@@ -149,6 +149,7 @@ struct SourceAppsView: View {
             ) {
                 Task {
                     await viewModel.fetchSources(object, refresh: true)
+                    _load()
                 }
             }
             
@@ -171,8 +172,8 @@ struct SourceAppsView: View {
             _load()
             hasLoadedOnce = true
         }
-        .onChange(of: viewModel.isFinished) { _ in
-            _load()
+        .onChange(of: viewModel.isFinished) { finished in
+            if finished { _load() }
         }
         .onChange(of: _sortOption) { newValue in
             _sortOptionRawValue = newValue.rawValue
@@ -184,14 +185,9 @@ struct SourceAppsView: View {
     }
     
     private func _load() {
-        isLoading = true
-        
-        Task {
-            let loadedSources = object.compactMap { viewModel.sources[$0] }
-            _sources = loadedSources
-            withAnimation(.easeIn(duration: 0.2)) {
-                isLoading = false
-            }
+        _sources = object.compactMap { viewModel.sources[$0] }
+        withAnimation(.easeIn(duration: 0.2)) {
+            isLoading = false
         }
     }
     
