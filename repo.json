@@ -18,10 +18,10 @@
       "category": "utilities",
       "versions": [
         {
-          "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.4-build-24.1/ShrubSign.ipa",
+          "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.4-build-25.1/ShrubSign.ipa",
           "version": "3.2.4",
           "buildVersion": "12",
-          "date": "2026-11-19T22:28:21Z",
+          "date": "2026-11-23T03:17:05Z",
           "localizedDescription": "ShrubSign 3.2.4: improved signing responsiveness, Semi Local by default, optional per-device Fully Local SSL setup, and faster repeat builds.",
           "minOSVersion": "16.0"
         },
@@ -68,8 +68,8 @@
       ],
       "appPermissions": {},
       "version": "3.2.4",
-      "versionDate": "2026-11-19T22:28:21Z",
-      "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.4-build-24.1/ShrubSign.ipa"
+      "versionDate": "2026-11-23T03:17:05Z",
+      "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.4-build-25.1/ShrubSign.ipa"
     }
   ]
 }
