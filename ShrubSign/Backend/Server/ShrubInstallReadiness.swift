@@ -63,7 +63,7 @@ final class ShrubInstallReadiness: ObservableObject {
             return "ShrubSign is checking this device's install setup."
         case .offlineReady:
             return ServerInstaller.mode == .automatic
-                ? "Automatic tries Semi Local first and can fall back to Fully Local if the helper is unavailable."
+                ? "Automatic starts with Fully Local when this device trusts its certificate."
                 : "This device trusts the certificate used for Fully Local installs."
         case .onlineOnly:
             return "Installs use an online manifest helper. Install the local profile to install offline too."

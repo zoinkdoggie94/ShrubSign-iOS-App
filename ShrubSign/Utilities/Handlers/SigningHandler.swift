@@ -38,7 +38,7 @@ final class SigningHandler: NSObject {
 	}
 	
 	func copy() async throws {
-		guard let appUrl = Storage.shared.getAppDirectory(for: _app) else {
+		guard let appUrl = await MainActor.run(body: { Storage.shared.getAppDirectory(for: _app) }) else {
 			throw SigningFileHandlerError.appNotFound
 		}
 
@@ -46,10 +46,8 @@ final class SigningHandler: NSObject {
 		
 		let movedAppURL = _uniqueWorkDir.appendingPathComponent(appUrl.lastPathComponent)
 		
-        // Avoid logging full app filesystem paths in release builds.
-		try _fileManager.copyItem(at: appUrl, to: movedAppURL)
-		_movedAppPath = movedAppURL
-		print("[\(_uuid)] Moved Payload to: \(movedAppURL.path)")
+        try _fileManager.copyAppBundle(at: appUrl, to: movedAppURL)
+        _movedAppPath = movedAppURL
 	}
 	
 	func modify() async throws -> Signed {
@@ -65,11 +63,13 @@ final class SigningHandler: NSObject {
 			throw SigningFileHandlerError.infoPlistNotFound
 		}
 		
-		try await _modifyDict(using: infoDictionary, with: _options, to: movedAppPath)
-		
-		if let icon = appIcon {
-			try await _modifyDict(using: infoDictionary, for: icon, to: movedAppPath)
-		}
+        _modifyDict(using: infoDictionary, with: _options)
+        if let icon = appIcon {
+            try _modifyDict(using: infoDictionary, for: icon, to: movedAppPath)
+        }
+        if !originalInfoDictionary.isEqual(infoDictionary) {
+            try infoDictionary.write(to: infoPlistURL)
+        }
 		
 		if let name = _options.appName {
 			try await _modifyLocalesForName(name, for: movedAppPath)
@@ -84,7 +84,9 @@ final class SigningHandler: NSObject {
 		}
 		
         try await _removeCodeSignature(for: movedAppPath)
-		try await _removeProvisioning(for: movedAppPath)
+        if (!_options.onlyModify && !_options.doAdhocSigning) || _options.removeProvisioning {
+            try await _removeProvisioning(for: movedAppPath)
+        }
 		
         // Inject tweaks exactly once. Older builds could run the same pass
         // multiple times, which was slower and could duplicate Mach-O load commands.
@@ -112,11 +114,6 @@ final class SigningHandler: NSObject {
 				throw SigningFileHandlerError.missingCertifcate
 			}
 
-            // The old code accidentally checked a different ZsignHandler instance,
-            // so signing errors could be ignored and a broken result could be saved.
-            if let error = handler.hadError {
-                throw error
-            }
 		}
 
         try await self.move()
@@ -142,7 +139,6 @@ final class SigningHandler: NSObject {
 		destinationURL = destinationURL.appendingPathComponent(movedAppPath.lastPathComponent)
 		
 		try _fileManager.moveItem(at: movedAppPath, to: destinationURL)
-		print("[\(_uuid)] Moved App to: \(destinationURL.path)")
 		try? _fileManager.removeItem(at: _uniqueWorkDir)
 	}
 	
@@ -177,7 +173,7 @@ final class SigningHandler: NSObject {
 }
 
 extension SigningHandler {
-	private func _modifyDict(using infoDictionary: NSMutableDictionary, with options: Options, to app: URL) async throws {
+	private func _modifyDict(using infoDictionary: NSMutableDictionary, with options: Options) {
 		if options.fileSharing { infoDictionary.setObject(true, forKey: "UISupportsDocumentBrowser" as NSCopying) }
 		if options.itunesFileSharing { infoDictionary.setObject(true, forKey: "UIFileSharingEnabled" as NSCopying) }
 		if options.proMotion { infoDictionary.setObject(true, forKey: "CADisableMinimumFrameDurationOnPhone" as NSCopying) }
@@ -211,10 +207,10 @@ extension SigningHandler {
 			}
 		}
 		
-		try infoDictionary.write(to: app.appendingPathComponent("Info.plist"))
+
 	}
 	
-	private func _modifyDict(using infoDictionary: NSMutableDictionary, for image: UIImage, to app: URL) async throws {
+	private func _modifyDict(using infoDictionary: NSMutableDictionary, for image: UIImage, to app: URL) throws {
 		let imageSizes = [
 			(width: 120, height: 120, name: "FRIcon60x60@2x.png"),
 			(width: 152, height: 152, name: "FRIcon76x76@2x~ipad.png")
@@ -245,7 +241,7 @@ extension SigningHandler {
 		infoDictionary["CFBundleIcons"] = cfBundleIcons
 		infoDictionary["CFBundleIcons~ipad"] = cfBundleIconsIpad
 		
-		try infoDictionary.write(to: app.appendingPathComponent("Info.plist"))
+
 	}
 	
 	private func _removePlaceholderWatch(for app: URL) async throws {

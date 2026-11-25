@@ -27,6 +27,7 @@ class ServerInstaller: Identifiable, ObservableObject {
     let app: AppInfoPresentable
     let viewModel: InstallerStatusViewModel
     var buildVersion: String?
+    @MainActor private(set) var activeMode: ShrubInstallMode?
 
     private struct Attempt {
         let id: UUID
@@ -55,10 +56,7 @@ class ServerInstaller: Identifiable, ObservableObject {
         case .fullyLocal, .localServer:
             return mode
         case .automatic:
-            // Automatic starts with Semi Local because it only needs internet.
-            // Fully Local is attempted afterwards when the local profile is
-            // installed and trusted, so a bad trust setup cannot break installs.
-            return .localServer
+            return PersonalSSL.isTrusted() ? .fullyLocal : .localServer
         }
     }
 
@@ -151,6 +149,7 @@ class ServerInstaller: Identifiable, ObservableObject {
             port = listenPort
         }
 
+        activeMode = nil
         let token = UUID()
         _setAttempt(Attempt(id: token, package: fileURL))
         let manifest: URL
@@ -160,12 +159,21 @@ class ServerInstaller: Identifiable, ObservableObject {
         case .localServer:
             manifest = try await _prepareLocalServer(bundleID: bundleID, token: token)
         case .automatic:
-            do {
+            if PersonalSSL.isTrusted() {
+                do {
+                    manifest = try await _prepareFullyLocal(bundleID: bundleID, token: token)
+                } catch {
+                    try Task.checkCancellation()
+                    do {
+                        manifest = try await _prepareLocalServer(bundleID: bundleID, token: token)
+                    } catch let fallbackError {
+                        throw ShrubInstallError.manifestUnavailable(
+                            "Fully Local: \(error.localizedDescription) Semi Local: \(fallbackError.localizedDescription)"
+                        )
+                    }
+                }
+            } else {
                 manifest = try await _prepareLocalServer(bundleID: bundleID, token: token)
-            } catch {
-                try Task.checkCancellation()
-                guard PersonalSSL.isTrusted() else { throw error }
-                manifest = try await _prepareFullyLocal(bundleID: bundleID, token: token)
             }
         }
         try Task.checkCancellation()
@@ -193,6 +201,7 @@ class ServerInstaller: Identifiable, ObservableObject {
         try await Self.validateManifest(at: url, expectedBundleID: bundleID,
                                         expectedPayload: payloadURL(secure: true, token: token),
                                         expectedVersion: manifestBuildVersion)
+        activeMode = .fullyLocal
         return url
     }
 
@@ -210,6 +219,7 @@ class ServerInstaller: Identifiable, ObservableObject {
             do {
                 try await Self.validateManifest(at: url, expectedBundleID: bundleID,
                                                 expectedPayload: payload, expectedVersion: version)
+                activeMode = .localServer
                 return url
             } catch {
                 try Task.checkCancellation()

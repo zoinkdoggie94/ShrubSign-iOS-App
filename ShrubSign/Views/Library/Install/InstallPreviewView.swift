@@ -24,7 +24,11 @@ struct InstallPreviewView: View {
     @State private var progressTask: Task<Void, Never>?
     @State private var watchdog: Task<Void, Never>?
     @State private var wasInstalled: Bool?
-    @State private var installedVersion: String?
+    @State private var previousRegistration: InstalledApplication?
+    @State private var lastProgressAt: TimeInterval?
+    @State private var installProgressStale = false
+    @State private var payloadRequested = false
+    @State private var confirmManualCompletion = false
     @State private var started = false
     @State private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     @State private var handedOff = false
@@ -72,6 +76,12 @@ struct InstallPreviewView: View {
             }
         }
         .onReceive(viewModel.$status, perform: handle)
+        .alert("Mark app installed?", isPresented: $confirmManualCompletion) {
+            Button("Mark Installed", action: markInstalledManually)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Open the app from your Home Screen first. Mark it installed here once you’ve verified it opens.")
+        }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             if case .issue = stage, profileMessage != nil {
@@ -79,6 +89,7 @@ struct InstallPreviewView: View {
                 if PersonalSSL.isTrusted() { profileMessage = "Local profile trusted. Tap Try again to continue." }
             } else if handedOff, recordID != nil {
                 BackgroundAudioManager.shared.start(force: true, installation: installer.id)
+                _ = checkInstalled()
             }
         }
         .onAppear {
@@ -132,6 +143,14 @@ struct InstallPreviewView: View {
                         .buttonStyle(.bordered)
                 }
             }
+            if payloadRequested && (installProgressStale || isInstallUnconfirmed) {
+                if isInstallUnconfirmed {
+                    Button("Check again") { _ = checkInstalled() }
+                        .buttonStyle(.bordered)
+                }
+                Button("I verified the app opens") { confirmManualCompletion = true }
+                    .buttonStyle(.bordered)
+            }
         }
         .controlSize(.large)
         .padding(24)
@@ -144,8 +163,8 @@ struct InstallPreviewView: View {
         case .packaging: return "Packaging IPA"
         case .preparing: return "Checking install connection"
         case .waitingForApproval: return "Waiting for iOS approval"
-        case .transferring: return "Sending app to iOS"
-        case .installing: return "Installing in iOS"
+        case .transferring: return installProgressStale ? "Checking installation" : "Sending app to iOS"
+        case .installing: return installProgressStale ? "Checking installation" : "Installing in iOS"
         case .completed: return isSharing ? "Exported" : "Installed"
         case .issue(_, let unconfirmed): return unconfirmed ? "Install unconfirmed" : "Installation failed"
         }
@@ -154,7 +173,12 @@ struct InstallPreviewView: View {
     private var detail: LocalizedStringKey? {
         switch stage {
         case .waitingForApproval: return "Tap Install on the install page and confirm the iOS prompt."
-        case .transferring, .installing: return isServerInstall ? "Keep ShrubSign open while iOS finishes." : nil
+        case .transferring where installProgressStale:
+            return "iOS is handling the installation. Check your Home Screen if the app already appears."
+        case .transferring: return isServerInstall ? "Keep ShrubSign open while the IPA transfers." : nil
+        case .installing where installProgressStale:
+            return "iOS has stopped reporting progress. Check for the app on your Home Screen."
+        case .installing: return isServerInstall ? "iOS is finishing the installation." : nil
         default: return nil
         }
     }
@@ -163,10 +187,15 @@ struct InstallPreviewView: View {
         switch stage {
         case .packaging: return viewModel.packageProgress
         case .transferring where !isServerInstall: return viewModel.uploadProgress
-        case .installing where viewModel.installProgress > 0: return min(viewModel.installProgress, 0.99)
+        case .installing where !installProgressStale && viewModel.installProgress > 0: return min(viewModel.installProgress, 0.99)
         case .completed where !isSharing: return 1
         default: return nil
         }
+    }
+
+    private var isInstallUnconfirmed: Bool {
+        if case .issue(_, true) = stage { return true }
+        return false
     }
 
     private var showsActivity: Bool {
@@ -185,7 +214,8 @@ struct InstallPreviewView: View {
     }
 
     private var alternateMode: ShrubInstallMode {
-        mode == .fullyLocal ? .localServer : .fullyLocal
+        let currentMode = installer.activeMode ?? (mode == .automatic ? ServerInstaller.resolvedMode() : mode)
+        return currentMode == .fullyLocal ? .localServer : .fullyLocal
     }
 
     @ViewBuilder
@@ -240,6 +270,10 @@ struct InstallPreviewView: View {
         switch status {
         case .sendingPayload:
             showsInstallBrowser = false
+            if isServerInstall, !payloadRequested {
+                payloadRequested = true
+                lastProgressAt = ProcessInfo.processInfo.systemUptime
+            }
             if case .waitingForApproval = stage { stage = .transferring }
             if !isServerInstall { stage = .transferring }
             if isServerInstall, progressTask == nil {
@@ -249,6 +283,10 @@ struct InstallPreviewView: View {
             }
         case .installing:
             stage = .installing
+            if isServerInstall {
+                lastProgressAt = ProcessInfo.processInfo.systemUptime
+                installProgressStale = false
+            }
             if isServerInstall { startWatchdog(seconds: 300, waitingForApproval: false) }
         case .completed(let result):
             switch result {
@@ -277,6 +315,7 @@ struct InstallPreviewView: View {
         }
 
         let settings = useShareSheet
+        let localInstall = isServerInstall
         preparation = Task { @MainActor in
             do {
                 if let file = installer.packageUrl, FileManager.default.isReadableFile(atPath: file.path) {
@@ -287,7 +326,7 @@ struct InstallPreviewView: View {
                     let handler = ArchiveHandler(app: app, viewModel: viewModel)
                     do {
                         try await handler.move()
-                        let url = try await handler.archive()
+                        let url = try await handler.archive(forLocalInstall: localInstall)
                         if isSharing {
                             let exported = try await handler.moveToArchive(url, shouldOpen: !settings)
                             handler.clean()
@@ -332,7 +371,7 @@ struct InstallPreviewView: View {
         }
 
         wasInstalled = app.identifier.flatMap { UIApplication.appIsInstalled($0) }
-        installedVersion = app.identifier.flatMap { UIApplication.installedBundleVersion($0) }
+        previousRegistration = app.identifier.flatMap { UIApplication.installedApplication($0) }
         stage = .preparing
         let page = try await installer.prepareInstallHandoff(mode: mode)
         try Task.checkCancellation()
@@ -393,6 +432,9 @@ struct InstallPreviewView: View {
         installer.invalidateAttempt()
         profileMessage = nil
         copiedError = false
+        payloadRequested = false
+        installProgressStale = false
+        lastProgressAt = nil
         viewModel.installProgress = 0
         viewModel.uploadProgress = 0
         viewModel.status = .none
@@ -417,6 +459,7 @@ struct InstallPreviewView: View {
         watchdog = Task { @MainActor in
             do { try await Task.sleep(nanoseconds: seconds * 1_000_000_000) }
             catch { return }
+            if checkInstalled() { return }
             let error: ShrubInstallError = waitingForApproval ? .handoffTimedOut : .completionUnconfirmed
             finish(error, unconfirmed: !waitingForApproval)
         }
@@ -425,41 +468,49 @@ struct InstallPreviewView: View {
     private func pollProgress() {
         guard let bundleID = app.identifier, !bundleID.isEmpty else { return }
         let model = viewModel
-        let checkingNewInstall = wasInstalled == false
-        let expectedVersion = installer.buildVersion
-        let checkingUpdate = installedVersion != nil && expectedVersion != nil && installedVersion != expectedVersion
         progressTask = Task { @MainActor in
             while !Task.isCancelled {
-                let raw = UIApplication.installProgress(for: bundleID, makeSynchronous: false)
-                if let raw, raw.isFinite, raw > 0 {
-                    if case .transferring = stage { stage = .installing }
-                    model.installProgress = max(model.installProgress, raw)
+                let now = ProcessInfo.processInfo.systemUptime
+                if let raw = UIApplication.installProgress(for: bundleID, makeSynchronous: false),
+                   raw.isFinite, raw > model.installProgress {
+                    model.installProgress = min(raw, 1)
+                    lastProgressAt = now
+                    installProgressStale = false
                 }
-                // Registration of the expected build can confirm success even
-                // when the last progress sample stays below 1.
-                let registeredBuild = UIApplication.installedBundleVersion(bundleID)
-                let registeredExpectedBuild = expectedVersion != nil && registeredBuild == expectedVersion
-                let isUpdated = checkingUpdate && registeredExpectedBuild
-                let progressEnded = raw == nil || raw == 0 || raw == 1
-                let isNewInstall = checkingNewInstall && (
-                    registeredExpectedBuild || (progressEnded && UIApplication.appIsInstalled(bundleID) == true)
-                )
-                if isNewInstall || isUpdated {
-                    finish(nil)
-                    return
+                if let lastProgressAt, now - lastProgressAt >= 8 {
+                    installProgressStale = true
                 }
+                if checkInstalled() { return }
                 do { try await Task.sleep(nanoseconds: 1_000_000_000) }
                 catch { return }
             }
         }
     }
 
-    private func finish(_ error: Error?, unconfirmed: Bool = false) {
+    @discardableResult
+    private func checkInstalled() -> Bool {
+        guard payloadRequested, let bundleID = app.identifier,
+              let registered = UIApplication.installedApplication(bundleID),
+              registered.confirmsInstall(expectedBuild: installer.buildVersion,
+                                         previous: previousRegistration, wasAbsent: wasInstalled == false) else {
+            return false
+        }
+        finish(nil)
+        return true
+    }
+
+    private func markInstalledManually() {
+        guard payloadRequested, installProgressStale || isInstallUnconfirmed else { return }
+        finish(nil, verifiedByUser: true)
+    }
+
+    private func finish(_ error: Error?, unconfirmed: Bool = false, verifiedByUser: Bool = false) {
         if !isSharing, recordID == nil { return }
         if let recordID {
-            ShrubSigningCenter.shared.finish(id: recordID, error: error, unconfirmed: unconfirmed)
-            self.recordID = nil
+            ShrubSigningCenter.shared.finish(id: recordID, error: error, unconfirmed: unconfirmed,
+                                              verifiedByUser: verifiedByUser)
         }
+        if !unconfirmed { recordID = nil }
         stopMonitoring()
         if let error {
             stage = .issue(error, unconfirmed: unconfirmed)
@@ -490,7 +541,9 @@ struct InstallPreviewView: View {
         preparation?.cancel()
         preparation = nil
         if let recordID {
-            ShrubSigningCenter.shared.finish(id: recordID, error: ShrubInstallError.installSheetClosed, unconfirmed: true)
+            if !isInstallUnconfirmed {
+                ShrubSigningCenter.shared.finish(id: recordID, error: ShrubInstallError.installSheetClosed, unconfirmed: true)
+            }
             self.recordID = nil
             stopMonitoring()
         }

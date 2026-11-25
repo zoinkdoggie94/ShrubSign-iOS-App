@@ -50,7 +50,7 @@ enum FR {
         let recordID = UUID()
         let displayName = app.name ?? "Unnamed IPA"
         let bundleID = app.identifier
-        Task.detached {
+        Task.detached(priority: .userInitiated) {
             await MainActor.run {
                 ShrubSigningCenter.shared.begin(id: recordID, name: displayName, bundleID: bundleID)
             }

@@ -60,39 +60,31 @@ final class ArchiveHandler: NSObject {
 
 		try _fileManager.createDirectoryIfNeeded(at: payloadUrl)
 		
-		try _fileManager.copyItem(at: appUrl, to: movedAppURL)
+		try _fileManager.copyAppBundle(at: appUrl, to: movedAppURL)
 		_payloadUrl = payloadUrl
 	}
 	
-	func archive() async throws -> URL {
-		return try await Task.detached(priority: .background) { [self] in
-			guard let payloadUrl = await self._payloadUrl else {
-				throw SigningFileHandlerError.appNotFound
-			}
-			
-			let zipUrl = self._uniqueWorkDir.appendingPathComponent("Archive.zip")
-			let ipaUrl = self._uniqueWorkDir.appendingPathComponent("Archive.ipa")
-			
-            let progressGate = ShrubArchiveProgressGate()
-			try await Zip.zipFiles(
-				paths: [payloadUrl],
-				zipFilePath: zipUrl,
-				password: nil,
-				compression: ArchiveHandler.selectedCompression(),
-				progress: { progress in
-                    guard progressGate.shouldReport(progress) else { return }
-					Task { @MainActor in
-						self.viewModel.packageProgress = progress
-					}
-				})
-			
-			try FileManager.default.moveItem(at: zipUrl, to: ipaUrl)
-            try? FileManager.default.removeItem(at: payloadUrl)
-            await MainActor.run { self.viewModel.packageProgress = 1 }
-			return ipaUrl
-		}.value
-	}
-	
+    func archive(forLocalInstall: Bool) async throws -> URL {
+        guard let payloadURL = _payloadUrl else { throw SigningFileHandlerError.appNotFound }
+        let ipaURL = _uniqueWorkDir.appendingPathComponent("Archive.ipa")
+        let progressGate = ShrubArchiveProgressGate()
+        try Zip.zipFiles(
+            paths: [payloadURL],
+            zipFilePath: ipaURL,
+            password: nil,
+            compression: Self.selectedCompression(forLocalInstall: forLocalInstall),
+            progress: { progress in
+                guard progress.isFinite, progressGate.shouldReport(progress) else { return }
+                Task { @MainActor in
+                    self.viewModel.packageProgress = max(self.viewModel.packageProgress, progress)
+                }
+            }
+        )
+        try? _fileManager.removeItem(at: payloadURL)
+        await MainActor.run { viewModel.packageProgress = 1 }
+        return ipaURL
+    }
+
     func clean() {
         try? _fileManager.removeItem(at: _uniqueWorkDir)
     }
@@ -106,7 +98,15 @@ final class ArchiveHandler: NSObject {
 		let appendingString = "\(safeName)_\(safeVersion)_\(Int(Date().timeIntervalSince1970)).ipa"
 		let dest = _fileManager.archives.appendingPathComponent(appendingString)
 		
-		try _fileManager.moveItem(at: package, to: dest)
+        let output: URL
+        if _fileManager.fileExists(atPath: dest.path) {
+            output = dest.deletingPathExtension()
+                .appendingPathExtension(UUID().uuidString)
+                .appendingPathExtension("ipa")
+        } else {
+            output = dest
+        }
+        try _fileManager.moveItem(at: package, to: output)
 		
 		if shouldOpen, let sharedURL = FileManager.default.archives.toSharedDocumentsURL() {
 			await MainActor.run {
@@ -114,15 +114,15 @@ final class ArchiveHandler: NSObject {
 			}
 		}
 		
-		return dest
+		return output
 	}
 	
-    // Prefer fast ZIP creation for fresh installs; users can still choose a
-    // different compression level in Settings. Never index with a rawValue.
-    static func selectedCompression() -> ZipCompression {
+    static func selectedCompression(forLocalInstall: Bool) -> ZipCompression {
         let defaults = UserDefaults.standard
         let key = "Feather.compressionLevel"
-        guard defaults.object(forKey: key) != nil else { return .BestSpeed }
+        guard defaults.object(forKey: key) != nil else {
+            return forLocalInstall ? .NoCompression : .BestSpeed
+        }
         let savedRawValue = defaults.integer(forKey: key)
         return ZipCompression.allCases.first(where: { $0.rawValue == savedRawValue }) ?? .BestSpeed
     }

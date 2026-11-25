@@ -73,22 +73,27 @@ extension UIApplication {
         return (progress as? Progress)?.fractionCompleted
     }
 
-    /// Returns the registered build number if Launch Services exposes it.
-    static public func installedBundleVersion(_ identifier: String) -> String? {
+    /// A registered application, excluding the placeholder shown during installation.
+    static public func installedApplication(_ identifier: String) -> InstalledApplication? {
         let selector = NSSelectorFromString("applicationProxyForIdentifier:")
         guard let proxyClass = NSClassFromString("LSApplicationProxy") as? NSObject.Type,
               class_getClassMethod(proxyClass, selector) != nil,
               let proxy = proxyClass.perform(selector, with: identifier)?.takeUnretainedValue() as? NSObject else {
             return nil
         }
+
         let placeholder = NSSelectorFromString("isPlaceholder")
-        if proxy.responds(to: placeholder), let method = proxy.method(for: placeholder) {
-            typealias IsPlaceholder = @convention(c) (NSObject, Selector) -> Bool
-            if unsafeBitCast(method, to: IsPlaceholder.self)(proxy, placeholder) { return nil }
-        }
+        guard proxy.responds(to: placeholder), let method = proxy.method(for: placeholder) else { return nil }
+        typealias IsPlaceholder = @convention(c) (NSObject, Selector) -> Bool
+        guard !unsafeBitCast(method, to: IsPlaceholder.self)(proxy, placeholder),
+              appIsInstalled(identifier) != false else { return nil }
+
+        let bundleURL = NSSelectorFromString("bundleURL")
         let version = NSSelectorFromString("bundleVersion")
-        guard proxy.responds(to: version) else { return nil }
-        return proxy.perform(version)?.takeUnretainedValue() as? String
+        let url = proxy.responds(to: bundleURL) ? proxy.perform(bundleURL)?.takeUnretainedValue() as? URL : nil
+        let build = proxy.responds(to: version) ? proxy.perform(version)?.takeUnretainedValue() as? String : nil
+        guard url?.isFileURL == true || build != nil else { return nil }
+        return InstalledApplication(bundlePath: url?.standardizedFileURL.path, buildVersion: build)
     }
 
     private static func installWorkspace() -> NSObject? {

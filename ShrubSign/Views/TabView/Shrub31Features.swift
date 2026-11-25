@@ -40,10 +40,10 @@ final class ShrubSigningCenter: ObservableObject {
         if records.count > 100 { records = Array(records.prefix(100)) }
         persist()
     }
-    func finish(id: UUID, error: Error?, unconfirmed: Bool = false) {
+    func finish(id: UUID, error: Error?, unconfirmed: Bool = false, verifiedByUser: Bool = false) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].status = unconfirmed ? "Unconfirmed" : (error == nil ? "Completed" : "Failed")
-        records[index].message = nil
+        records[index].message = verifiedByUser ? "Verified by you on the Home Screen." : nil
         records[index].finished = Date()
         // Avoid persisting URL query strings or sensitive paths from third-party errors.
         if let error {

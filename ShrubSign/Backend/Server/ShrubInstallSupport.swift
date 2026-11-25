@@ -22,7 +22,7 @@ enum ShrubInstallKey {
 
 // MARK: - Modes
 enum ShrubInstallMode: Int, CaseIterable, Identifiable {
-    /// Uses Semi Local first and trusted Fully Local as a fallback.
+    /// Uses trusted Fully Local first, with Semi Local as a fallback.
     case automatic = 2
     case fullyLocal = 0
     case localServer = 1
@@ -40,7 +40,7 @@ enum ShrubInstallMode: Int, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .automatic:
-            return "Installs with Semi Local first, then falls back to Fully Local when the local profile is trusted."
+            return "Starts with Fully Local when trusted. Uses Semi Local when the local setup is unavailable."
         case .fullyLocal:
             return "The manifest and the IPA are served from this device over trusted HTTPS. Works offline."
         case .localServer:

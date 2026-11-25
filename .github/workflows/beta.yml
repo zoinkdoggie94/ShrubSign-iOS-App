@@ -43,6 +43,12 @@ jobs:
           restore-keys: |
             shrubsign-compiled-macos26-v2-${{ hashFiles('ShrubSign.xcodeproj/project.pbxproj', 'makefile') }}-
 
+      - name: Test install completion
+        run: |
+          test_dir=$(mktemp -d)
+          xcrun swiftc             NimbleKit/Sources/NimbleExtensions/UIApplication/InstalledApplication.swift             scripts/installer_completion_smoke.swift             -o "$test_dir/installer-completion"
+          "$test_dir/installer-completion"
+
       - name: Build
         run: |
           # Save a complete searchable log and print actionable compiler diagnostics
