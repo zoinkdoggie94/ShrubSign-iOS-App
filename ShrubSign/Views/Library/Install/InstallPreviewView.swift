@@ -104,7 +104,7 @@ struct InstallPreviewView: View {
                             .labelStyle(.iconOnly)
                     }
                     .buttonStyle(.bordered)
-                    .buttonBorderShape(.circle)
+                    .buttonBorderShape(.capsule)
                 }
             }
             InstallProgressView(app: app, status: status, detail: detail, progress: progress, tint: tint,
