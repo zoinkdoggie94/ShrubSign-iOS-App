@@ -18,6 +18,14 @@
       "category": "utilities",
       "versions": [
         {
+          "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.3.0-build-29.1/ShrubSign.ipa",
+          "version": "3.3.0",
+          "buildVersion": "14",
+          "date": "2026-11-25T03:46:02Z",
+          "localizedDescription": "ShrubSign 3.3.0 adds an in-app install sheet, clearer progress through 100% when installation is confirmed, a more compact iPad layout, and improved Fully Local setup and recovery.",
+          "minOSVersion": "16.0"
+        },
+        {
           "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.5-build-27.1/ShrubSign.ipa",
           "version": "3.2.5",
           "buildVersion": "13",
@@ -75,9 +83,9 @@
         }
       ],
       "appPermissions": {},
-      "version": "3.2.5",
-      "versionDate": "2026-11-23T03:31:24Z",
-      "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.2.5-build-27.1/ShrubSign.ipa"
+      "version": "3.3.0",
+      "versionDate": "2026-11-25T03:46:02Z",
+      "downloadURL": "https://github.com/zoinkdoggie94/ShrubSign-iOS-App/releases/download/v3.3.0-build-29.1/ShrubSign.ipa"
     }
   ]
 }
