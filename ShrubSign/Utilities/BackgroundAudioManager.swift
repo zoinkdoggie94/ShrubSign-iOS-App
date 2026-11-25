@@ -17,13 +17,19 @@ final class BackgroundAudioManager {
 
     private let _engine = AVAudioEngine()
     private var _source: AVAudioSourceNode?
-    private var _isRunning = false
+    private var _downloadNeedsAudio = false
+    private var _installations: Set<UUID> = []
 
     private init() {}
 
-    func start(force: Bool = false) {
+    func start(force: Bool = false, installation: UUID? = nil) {
         guard force || OptionsManager.shared.options.backgroundAudio else { return }
-        guard !_isRunning else { return }
+        if let installation {
+            _installations.insert(installation)
+        } else {
+            _downloadNeedsAudio = true
+        }
+        guard !_engine.isRunning else { return }
 
         do {
             let session = AVAudioSession.sharedInstance()
@@ -46,15 +52,18 @@ final class BackgroundAudioManager {
             if !_engine.isRunning {
                 try _engine.start()
             }
-            _isRunning = true
         } catch {
             print("failed to start engine:", error)
         }
     }
 
-    func stop() {
-        guard _isRunning else { return }
-        _isRunning = false
+    func stop(installation: UUID? = nil) {
+        if let installation {
+            guard _installations.remove(installation) != nil else { return }
+        } else {
+            _downloadNeedsAudio = false
+        }
+        guard !_downloadNeedsAudio, _installations.isEmpty else { return }
         _engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false)
     }

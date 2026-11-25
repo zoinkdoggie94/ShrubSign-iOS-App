@@ -35,6 +35,7 @@ final class ArchiveHandler: NSObject {
 	private let _fileManager = FileManager.default
 	private let _uuid = UUID().uuidString
 	private var _payloadUrl: URL?
+    private(set) var buildVersion: String?
 	
 	private var _app: AppInfoPresentable
 	private let _uniqueWorkDir: URL
@@ -49,10 +50,11 @@ final class ArchiveHandler: NSObject {
 	}
 	
 	func move() async throws {
-		guard let appUrl = Storage.shared.getAppDirectory(for: _app) else {
+		guard let appUrl = await MainActor.run(body: { Storage.shared.getAppDirectory(for: _app) }) else {
 			throw SigningFileHandlerError.appNotFound
 		}
 		
+        buildVersion = Bundle(url: appUrl)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String
 		let payloadUrl = _uniqueWorkDir.appendingPathComponent("Payload")
 		let movedAppURL = payloadUrl.appendingPathComponent(appUrl.lastPathComponent)
 
@@ -85,10 +87,16 @@ final class ArchiveHandler: NSObject {
 				})
 			
 			try FileManager.default.moveItem(at: zipUrl, to: ipaUrl)
+            try? FileManager.default.removeItem(at: payloadUrl)
+            await MainActor.run { self.viewModel.packageProgress = 1 }
 			return ipaUrl
 		}.value
 	}
 	
+    func clean() {
+        try? _fileManager.removeItem(at: _uniqueWorkDir)
+    }
+
 	func moveToArchive(_ package: URL, shouldOpen: Bool = false) async throws -> URL? {
 		let rawName = (_app.name?.isEmpty == false ? _app.name : nil) ?? "ShrubSignApp"
 		let rawVersion = (_app.version?.isEmpty == false ? _app.version : nil) ?? "UnknownVersion"

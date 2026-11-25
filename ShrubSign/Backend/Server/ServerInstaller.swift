@@ -5,20 +5,11 @@
 //  Originally created by samara on 22.08.2024 for feather.
 //  ORIGINALLY LICENSED UNDER GPL-3.0, MODIFIED FOR USE FOR SHRUBSIGN
 //
-//  ShrubSign 3.2.2 rework:
-//  • Always starts an HTTP listener for the install page and the local payload.
-//  • Additionally starts an HTTPS listener whenever device certificates exist,
-//    so Fully Local can serve its own manifest instead of relying on an
-//    external service that may be offline.
-//  • Validates the exact manifest iOS is about to fetch and reports why it
-//    failed, instead of handing over a link that silently does nothing.
-//
 
 import Foundation
 import Vapor
 import NIOSSL
-import NIOTLS
-import SwiftUI
+import Combine
 import IDeviceSwift
 
 // MARK: - Class
@@ -28,27 +19,25 @@ class ServerInstaller: Identifiable, ObservableObject {
     /// Plain HTTP listener: install page, trust profile, and the local payload
     /// used by Semi Local installs.
     private(set) var port = 0
-    /// HTTPS listener: manifest and payload used by Fully Local installs.
     private(set) var securePort = 0
-    private(set) var isSecureServerRunning = false
-
-    private var _needsShutdown = false
     private var _server: Application?
     private var _secureServer: Application?
 
     var packageUrl: URL?
-    var app: AppInfoPresentable
-    @ObservedObject var viewModel: InstallerStatusViewModel
+    let app: AppInfoPresentable
+    let viewModel: InstallerStatusViewModel
+    var buildVersion: String?
 
-    /// The manifest URL ShrubSign decided to hand to iOS.
-    @Published private(set) var activeManifestURL: URL?
-    @Published private(set) var activeProviderName: String?
-
-    // iOS may dismiss the installation view while itms-services is fetching
-    // the manifest and IPA. Hold a bounded reference so SwiftUI view teardown
-    // does not destroy the server during that handoff.
-    private static let activeInstallLock = NSLock()
-    private static var activeInstallers: [UUID: ServerInstaller] = [:]
+    private struct Attempt {
+        let id: UUID
+        let package: URL
+        var html: String?
+        var payloadRequested = false
+    }
+    private let _attemptLock = NSLock()
+    private var _attempt: Attempt?
+    private var _releaseTask: DispatchWorkItem?
+    @MainActor private static var activeInstallers: [UUID: ServerInstaller] = [:]
 
     // MARK: - Mode
     static var mode: ShrubInstallMode {
@@ -88,197 +77,163 @@ class ServerInstaller: Identifiable, ObservableObject {
     init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) {
         self.app = app
         self.viewModel = viewModel
-
-        var httpError: Error?
-        for _ in 0..<6 {
-            let candidate = Int.random(in: 4000...8000)
-            do {
-                let server = try Self.setupApp(port: candidate, secure: false)
-                self._server = server
-                try _configureRoutes(server, secure: false)
-                try server.server.start()
-                self.port = candidate
-                self._needsShutdown = true
-                break
-            } catch {
-                httpError = error
-                if let server = self._server {
-                    server.server.shutdown()
-                    server.shutdown()
-                }
-                self._server = nil
-            }
-        }
-
-        // Fully Local needs TLS. Start it whenever credentials exist so the
-        // manifest is ready even if the user switches modes later.
-        if (try? Self.tls()) != nil {
-            for _ in 0..<6 {
-                var candidate = Int.random(in: 4000...8000)
-                if candidate == port { candidate += 1 }
-                do {
-                    let server = try Self.setupApp(port: candidate, secure: true)
-                    self._secureServer = server
-                    try _configureRoutes(server, secure: true)
-                    try server.server.start()
-                    self.securePort = candidate
-                    self.isSecureServerRunning = true
-                    break
-                } catch {
-                    if let server = self._secureServer {
-                        server.server.shutdown()
-                        server.shutdown()
-                    }
-                    self._secureServer = nil
-                    self.isSecureServerRunning = false
-                }
-            }
-        }
-
-        if port == 0 {
-            let error = httpError ?? ShrubInstallError.localServerUnavailable
-            DispatchQueue.main.async {
-                viewModel.status = .broken(error)
-            }
-        }
     }
 
     deinit {
-        _shutdownServers()
+        // A request callback can hold the final reference to the installer.
+        // Blocking server shutdown must not run on that request's event loop.
+        let servers = [_server, _secureServer].compactMap { $0 }
+        let directory = packageUrl?.deletingLastPathComponent()
+        DispatchQueue.global(qos: .utility).async {
+            for server in servers {
+                server.server.shutdown()
+                server.shutdown()
+            }
+            if let directory { try? FileManager.default.removeItem(at: directory) }
+        }
     }
 
-    private func _shutdownServers() {
-        guard _needsShutdown else { return }
-        _needsShutdown = false
-        _server?.server.shutdown()
-        _server?.shutdown()
-        _server = nil
-        _secureServer?.server.shutdown()
-        _secureServer?.shutdown()
-        _secureServer = nil
+    private func _startServer(secure: Bool) throws -> (Application, Int) {
+        let tls = secure ? try Self.tls() : nil
+        if secure, tls == nil { throw ShrubInstallError.secureServerUnavailable }
+        var lastError: Error?
+        for _ in 0..<6 {
+            let port = Int.random(in: 4000...8000)
+            let server = Self.setupApp(port: port, tls: tls, loopbackOnly: secure)
+            _configureRoutes(server, secure: secure)
+            do {
+                try server.server.start()
+                return (server, port)
+            } catch {
+                server.shutdown()
+                lastError = error
+            }
+        }
+        throw lastError ?? ShrubInstallError.localServerUnavailable
     }
 
     // MARK: - Keep alive
-    func keepServerAliveDuringInstall() {
-        ServerInstaller.activeInstallLock.lock()
-        ServerInstaller.activeInstallers[id] = self
-        ServerInstaller.activeInstallLock.unlock()
-
-        // Prevent unbounded retained servers. Expiry is a fallback for installs
-        // where iOS never reports success or failure to the application.
+    @MainActor
+    func keepServerAliveDuringInstall(for delay: TimeInterval = 900) {
+        _releaseTask?.cancel()
+        Self.activeInstallers[id] = self
         let installID = id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 900) {
-            Self.releaseInstallation(installID)
+        let release = DispatchWorkItem {
+            Self.activeInstallers.removeValue(forKey: installID)
         }
+        _releaseTask = release
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: release)
     }
 
+    @MainActor
     func stopKeepingAlive() {
-        Self.releaseInstallation(id)
-    }
-
-    static func releaseInstallation(_ installID: UUID) {
-        ServerInstaller.activeInstallLock.lock()
-        let released = ServerInstaller.activeInstallers.removeValue(forKey: installID)
-        ServerInstaller.activeInstallLock.unlock()
-        _ = released
+        _releaseTask?.cancel()
+        _releaseTask = nil
+        Self.activeInstallers.removeValue(forKey: id)
     }
 
     // MARK: - Hand-off
-    /// Prepares the manifest iOS will fetch and returns the local page that
-    /// triggers itms-services. Throws a readable error instead of failing
-    /// silently inside the system installer.
     @MainActor
-    func prepareInstallHandoff() async throws -> URL {
+    func prepareInstallHandoff(mode: ShrubInstallMode) async throws -> URL {
         guard let fileURL = packageUrl,
               fileURL.isFileURL,
-              FileManager.default.fileExists(atPath: fileURL.path) else {
+              FileManager.default.isReadableFile(atPath: fileURL.path) else {
             throw ShrubInstallError.missingPackage
         }
-
         let bundleID = (app.identifier ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !bundleID.isEmpty, !bundleID.hasPrefix("com.shrubsign.unknown") else {
             throw ShrubInstallError.missingBundleIdentifier
         }
 
-        activeManifestURL = nil
-        activeProviderName = nil
-
-        switch Self.mode {
-        case .fullyLocal:
-            try await _prepareFullyLocal(bundleID: bundleID)
-        case .localServer:
-            try await _prepareLocalServer(bundleID: bundleID)
-        case .automatic:
-            do {
-                try await _prepareLocalServer(bundleID: bundleID)
-            } catch {
-                // The device-local HTTPS server is the reliable fallback: it
-                // needs no online helper and always describes this exact app.
-                guard PersonalSSL.hasCredentials, PersonalSSL.isTrusted() else { throw error }
-                try await _prepareFullyLocal(bundleID: bundleID)
-            }
+        if _server == nil {
+            let (server, listenPort) = try _startServer(secure: false)
+            _server = server
+            port = listenPort
         }
 
-        guard let page = installPageURL else { throw ShrubInstallError.invalidPage }
+        let token = UUID()
+        _setAttempt(Attempt(id: token, package: fileURL))
+        let manifest: URL
+        switch mode {
+        case .fullyLocal:
+            manifest = try await _prepareFullyLocal(bundleID: bundleID, token: token)
+        case .localServer:
+            manifest = try await _prepareLocalServer(bundleID: bundleID, token: token)
+        case .automatic:
+            do {
+                manifest = try await _prepareLocalServer(bundleID: bundleID, token: token)
+            } catch {
+                try Task.checkCancellation()
+                guard PersonalSSL.isTrusted() else { throw error }
+                manifest = try await _prepareFullyLocal(bundleID: bundleID, token: token)
+            }
+        }
+        try Task.checkCancellation()
+        let page = _endpoint("/install", secure: false, token: token, host: PersonalSSL.host)
+        _setAttempt(Attempt(id: token, package: fileURL, html: _installPage(manifest: manifest, token: token)))
         return page
     }
 
-    private func _prepareFullyLocal(bundleID: String) async throws {
-        guard port > 0 else { throw ShrubInstallError.localServerUnavailable }
-        guard PersonalSSL.hasCredentials else { throw ShrubInstallError.profileMissing }
-        guard isSecureServerRunning, securePort > 0 else {
-            throw ShrubInstallError.secureServerUnavailable
-        }
+    @MainActor
+    private func _prepareFullyLocal(bundleID: String, token: UUID) async throws -> URL {
+        guard PersonalSSL.hasDeviceLocalIdentity else { throw ShrubInstallError.profileMissing }
         guard PersonalSSL.isTrusted() else { throw ShrubInstallError.trustRequired }
-
-        let url = manifestURL(secure: true)
-        try await Self.validateManifest(at: url, expectedBundleID: bundleID)
-        activeManifestURL = url
-        activeProviderName = "This device (HTTPS)"
+        // The trust profile may have been created or renewed while this installer
+        // was open. Load the current identity before each Fully Local hand-off.
+        if let server = _secureServer {
+            _secureServer = nil
+            securePort = 0
+            await server.server.shutdown()
+            try await server.asyncShutdown()
+        }
+        let (server, listenPort) = try _startServer(secure: true)
+        _secureServer = server
+        securePort = listenPort
+        let url = manifestURL(secure: true, token: token)
+        try await Self.validateManifest(at: url, expectedBundleID: bundleID,
+                                        expectedPayload: payloadURL(secure: true, token: token),
+                                        expectedVersion: manifestBuildVersion)
+        return url
     }
 
-    private func _prepareLocalServer(bundleID: String) async throws {
-        guard port > 0 else { throw ShrubInstallError.localServerUnavailable }
-
-        let payload = payloadURL(secure: false)
+    @MainActor
+    private func _prepareLocalServer(bundleID: String, token: UUID) async throws -> URL {
+        let payload = payloadURL(secure: false, token: token)
         let displayName = app.name?.isEmpty == false ? (app.name ?? "ShrubSign App") : "ShrubSign App"
-        let version = app.version?.isEmpty == false ? (app.version ?? "1.0") : "1.0"
+        let version = manifestBuildVersion
 
         var failures: [String] = []
         for provider in ShrubManifestProviders.all {
             guard let url = provider.manifestURL(
-                bundleID: bundleID,
-                name: displayName,
-                version: version,
-                payload: payload,
-                port: port
-            ) else {
-                failures.append("\(provider.name): unavailable for port \(port)")
-                continue
-            }
+                bundleID: bundleID, name: displayName, version: version, payload: payload, port: port
+            ) else { continue }
             do {
-                try await Self.validateManifest(at: url, expectedBundleID: bundleID)
-                activeManifestURL = url
-                activeProviderName = provider.name
-                return
+                try await Self.validateManifest(at: url, expectedBundleID: bundleID,
+                                                expectedPayload: payload, expectedVersion: version)
+                return url
             } catch {
+                try Task.checkCancellation()
                 failures.append("\(provider.name): \(error.localizedDescription)")
             }
         }
 
         throw ShrubInstallError.manifestUnavailable(
-            "No online manifest helper answered. " + failures.joined(separator: " · ")
-            + " Install the local trust profile to use Fully Local instead."
+            "No online manifest helper returned a usable manifest. " + failures.joined(separator: " · ")
+            + " Set up the local trust profile to use Fully Local."
         )
     }
 
     /// Fetches the manifest exactly the way the system installer will and
     /// verifies that it describes a software package.
-    static func validateManifest(at url: URL, expectedBundleID: String? = nil) async throws {
+    static func validateManifest(
+        at url: URL, expectedBundleID: String, expectedPayload: URL, expectedVersion: String
+    ) async throws {
+        guard url.scheme?.lowercased() == "https" else {
+            throw ShrubInstallError.invalidManifest("The manifest URL must use HTTPS.")
+        }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 12
-        request.setValue("1", forHTTPHeaderField: "X-ShrubSign-Preflight")
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 12
@@ -290,33 +245,27 @@ class ServerInstaller: Identifiable, ObservableObject {
         do {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            guard status == 200 else {
+            guard status == 200, response.url?.scheme?.lowercased() == "https" else {
                 throw ShrubInstallError.manifestUnavailable(
-                    "\(url.host ?? "The manifest server") returned HTTP \(status)."
+                    "\(url.host ?? "The manifest server") must return HTTP 200 over HTTPS (received \(status))."
                 )
             }
             let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
             guard
                 let dictionary = plist as? [String: Any],
                 let items = dictionary["items"] as? [[String: Any]],
-                !items.isEmpty,
+                items.count == 1,
                 let assets = items[0]["assets"] as? [[String: Any]],
-                assets.contains(where: { ($0["kind"] as? String) == "software-package" })
+                let package = assets.first(where: { ($0["kind"] as? String) == "software-package" }),
+                let address = package["url"] as? String, URL(string: address) == expectedPayload,
+                let metadata = items[0]["metadata"] as? [String: Any],
+                metadata["bundle-identifier"] as? String == expectedBundleID,
+                metadata["kind"] as? String == "software",
+                metadata["bundle-version"] as? String == expectedVersion,
+                let title = metadata["title"] as? String, !title.isEmpty
             else {
                 throw ShrubInstallError.invalidManifest(
-                    "\(url.host ?? "The manifest server") did not return a valid installation manifest."
-                )
-            }
-
-            // iOS refuses a package whose bundle identifier differs from the
-            // manifest, and shows the manifest title in the install prompt.
-            // Catching that here prevents a silent failure on the device.
-            if let expectedBundleID, !expectedBundleID.isEmpty,
-               let metadata = items[0]["metadata"] as? [String: Any],
-               let reported = metadata["bundle-identifier"] as? String,
-               !reported.isEmpty, reported != expectedBundleID {
-                throw ShrubInstallError.invalidManifest(
-                    "\(url.host ?? "The manifest server") described \(reported) instead of \(expectedBundleID)."
+                    "\(url.host ?? "The manifest server") did not describe the signed app and its local download URL."
                 )
             }
         } catch let error as ShrubInstallError {
@@ -329,74 +278,69 @@ class ServerInstaller: Identifiable, ObservableObject {
     }
 
     // MARK: - Routes
-    private func _configureRoutes(_ server: Application, secure: Bool) throws {
+    func invalidateAttempt() {
+        _setAttempt(nil)
+    }
+
+    private func _setAttempt(_ attempt: Attempt?) {
+        _attemptLock.lock()
+        defer { _attemptLock.unlock() }
+        _attempt = attempt
+    }
+
+    private func _currentAttempt(_ token: UUID) -> Attempt? {
+        _attemptLock.lock()
+        defer { _attemptLock.unlock() }
+        guard _attempt?.id == token else { return nil }
+        return _attempt
+    }
+
+    private func _markPayloadRequested(_ token: UUID) {
+        _attemptLock.lock()
+        defer { _attemptLock.unlock() }
+        if _attempt?.id == token { _attempt?.payloadRequested = true }
+    }
+
+    private func _configureRoutes(_ server: Application, secure: Bool) {
         server.get("*") { [weak self] req in
-            guard let self else { return Response(status: .badGateway) }
+            guard let self, let rawToken = req.query[String.self, at: "attempt"],
+                  let token = UUID(uuidString: rawToken), let attempt = self._currentAttempt(token) else {
+                return Response(status: .notFound)
+            }
+
             switch req.url.path {
-            case "/manifest.plist", "/\(self.id).plist":
-                // A local preflight request must not masquerade as iOS
-                // starting the installation.
-                if req.headers.first(name: "X-ShrubSign-Preflight") != "1" {
-                    self._updateStatus(.sendingManifest)
-                }
-                return Response(status: .ok, version: req.version, headers: [
+            case "/manifest.plist" where secure:
+                return Response(status: .ok, headers: [
                     "Content-Type": "text/xml",
                     "Cache-Control": "no-store"
-                ], body: .init(data: self._manifestData(secure: secure)))
+                ], body: .init(data: self._manifestData(token: token)))
 
-            case "/payload.ipa", "/\(self.id).ipa", "/ota-me":
-                guard let packageUrl = self.packageUrl else {
-                    return Response(status: .notFound)
-                }
-                self._updateStatus(.sendingPayload)
-                return req.fileio.streamFile(at: packageUrl.path) { result in
-                    switch result {
-                    case .success:
-                        self._updateStatus(.installing)
-                    case .failure(let error):
-                        self._updateStatus(.broken(error))
+            case "/payload.ipa" where attempt.html != nil:
+                let response = req.fileio.streamFile(at: attempt.package.path) { [weak self] result in
+                    if case .success = result, req.method == .GET, !req.headers.contains(name: .range) {
+                        self?._updateStatus(.installing, token: token)
                     }
                 }
-
-            case "/app57x57.png":
-                return Response(status: .ok, version: req.version, headers: [
-                    "Content-Type": "image/png",
-                    "Cache-Control": "no-store"
-                ], body: .init(data: self._icon(57, secure: secure)))
-
-            case "/app512x512.png":
-                return Response(status: .ok, version: req.version, headers: [
-                    "Content-Type": "image/png",
-                    "Cache-Control": "no-store"
-                ], body: .init(data: self._icon(512, secure: secure)))
-
-            case "/install":
-                return Response(status: .ok, version: req.version, headers: [
-                    "Content-Type": "text/html; charset=utf-8",
-                    "Cache-Control": "no-store"
-                ], body: .init(string: self._installPage))
-
-            case "/trust.mobileconfig":
-                guard let url = PersonalSSL.profileURL,
-                      let data = try? Data(contentsOf: url) else {
-                    return Response(status: .notFound)
+                if req.method == .GET, response.status == .ok || response.status == .partialContent {
+                    self._markPayloadRequested(token)
+                    self._updateStatus(.sendingPayload, token: token)
                 }
-                return Response(status: .ok, version: req.version, headers: [
-                    "Content-Type": "application/x-apple-aspen-config",
-                    "Content-Disposition": "attachment; filename=\"ShrubSign-Local-Trust.mobileconfig\"",
-                    "Cache-Control": "no-store"
-                ], body: .init(data: data))
+                response.headers.replaceOrAdd(name: .cacheControl, value: "no-store")
+                return response
 
-            case "/health":
-                let text = """
-                ok
-                httpPort=\(self.port)
-                httpsPort=\(self.securePort)
-                https=\(self.isSecureServerRunning)
-                provider=\(self.activeProviderName ?? "none")
-                """
-                return Response(status: .ok, headers: ["Content-Type": "text/plain; charset=utf-8"],
-                                body: .init(string: text))
+            case "/install" where !secure:
+                guard let html = attempt.html else { return Response(status: .notFound) }
+                return Response(status: .ok, headers: [
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "Referrer-Policy": "no-referrer"
+                ], body: .init(string: html))
+
+            case "/install-status" where !secure:
+                return Response(status: .ok, headers: [
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Cache-Control": "no-store"
+                ], body: .init(string: attempt.payloadRequested ? "fetching" : "waiting"))
 
             default:
                 return Response(status: .notFound)
@@ -404,10 +348,18 @@ class ServerInstaller: Identifiable, ObservableObject {
         }
     }
 
-    private func _updateStatus(_ newStatus: InstallerStatusViewModel.InstallerStatus) {
+    private func _updateStatus(_ newStatus: InstallerStatusViewModel.InstallerStatus, token: UUID) {
         DispatchQueue.main.async {
-            self.viewModel.status = newStatus
+            guard self._currentAttempt(token) != nil else { return }
+            switch self.viewModel.status {
+            case .completed, .broken:
+                return
+            case .installing:
+                // A subsequent range request must not move the UI backwards.
+                return
+            default:
+                self.viewModel.status = newStatus
+            }
         }
     }
-
 }

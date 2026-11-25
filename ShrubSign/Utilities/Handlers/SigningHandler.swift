@@ -52,7 +52,7 @@ final class SigningHandler: NSObject {
 		print("[\(_uuid)] Moved Payload to: \(movedAppURL.path)")
 	}
 	
-	func modify() async throws {
+	func modify() async throws -> Signed {
 		guard let movedAppPath = _movedAppPath else {
 			throw SigningFileHandlerError.appNotFound
 		}
@@ -120,7 +120,14 @@ final class SigningHandler: NSObject {
 		}
 
         try await self.move()
-        try await self.addToDatabase()
+        do {
+            return try await self.addToDatabase()
+        } catch {
+            if let destination = try? await _directory() {
+                try? _fileManager.removeItem(at: destination)
+            }
+            throw error
+        }
 	}
 	
 	func move() async throws {
@@ -139,28 +146,24 @@ final class SigningHandler: NSObject {
 		try? _fileManager.removeItem(at: _uniqueWorkDir)
 	}
 	
-	func addToDatabase() async throws {
+	func addToDatabase() async throws -> Signed {
 		let app = try await _directory()
 		
 		guard let appUrl = _fileManager.getPath(in: app, for: "app") else {
-			return
+            throw SigningFileHandlerError.appNotFound
 		}
 		
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let bundle = Bundle(url: appUrl)
-
-            Storage.shared.addSigned(
-                uuid: _uuid,
-                certificate: _options.doAdhocSigning ? nil : appCertificate,
-                appName: bundle?.name,
-                appIdentifier: bundle?.bundleIdentifier,
-                appVersion: bundle?.version,
-                appIcon: bundle?.iconFileName
-            ) { _ in
-                Logger.signing.info("[\(self._uuid)] Added to database")
-                continuation.resume()
-            }
-		}
+        let bundle = Bundle(url: appUrl)
+        let signed = try await Storage.shared.addSigned(
+            uuid: _uuid,
+            certificate: _options.doAdhocSigning ? nil : appCertificate,
+            appName: bundle?.name,
+            appIdentifier: bundle?.bundleIdentifier,
+            appVersion: bundle?.version,
+            appIcon: bundle?.iconFileName
+        )
+        Logger.signing.info("[\(self._uuid)] Added to database")
+        return signed
 	}
 	
 	private func _directory() async throws -> URL {

@@ -106,20 +106,20 @@ jobs:
           set -euo pipefail
           VERSION=$(grep -m1 'MARKETING_VERSION = ' ShrubSign.xcodeproj/project.pbxproj | sed -E 's/.*= ([^;]+);/\1/')
           TAG="v${VERSION}-build-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
-          COMMIT_MSG=$(git log -1 --pretty=%B)
-
-          echo "## ShrubSign ${VERSION}" > release_notes.md
-          echo "" >> release_notes.md
-          echo "Commit: \`${COMMIT_MSG}\` (${{ github.sha }})" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "This release keeps older ShrubSign releases and IPA assets available." >> release_notes.md
-          echo "" >> release_notes.md
-          echo "### Recent changes" >> release_notes.md
-          git log -n 20 --pretty=format:'* %s (%h)' >> release_notes.md
-          echo "" >> release_notes.md
+          APP_BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION = ' ShrubSign.xcodeproj/project.pbxproj | sed -E 's/.*= ([^;]+);/\1/')
+          NOTES=".github/release-notes/${VERSION}.md"
+          if [ -f "$NOTES" ]; then
+            cp "$NOTES" release_notes.md
+          else
+            echo "## ShrubSign ${VERSION}" > release_notes.md
+            echo "" >> release_notes.md
+            echo "### Recent changes" >> release_notes.md
+            git log -n 20 --pretty=format:'* %s (%h)' >> release_notes.md
+          fi
+          printf '\n\nSource commit: `%s`\n' "$GITHUB_SHA" >> release_notes.md
 
           gh release create "$TAG" "packages/ShrubSign.ipa" \
-            --title "ShrubSign ${VERSION} · Build ${GITHUB_RUN_NUMBER}" \
+            --title "ShrubSign ${VERSION} · Build ${APP_BUILD}" \
             --notes-file release_notes.md \
             --target "${{ github.sha }}" \
             --latest
@@ -135,6 +135,7 @@ jobs:
           python3 scripts/update_repo.py
 
       - name: Notify Discord
+        if: vars.SHRUBSIGN_NOTIFY_DISCORD == 'true'
         continue-on-error: true
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}

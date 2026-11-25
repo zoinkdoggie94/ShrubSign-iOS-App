@@ -189,7 +189,7 @@ class TweakHandler {
 		// but it somehow works well enough,
 		// do note large lzma's are slow as hell
 		
-		let handler = AR(with: url)
+		let handler = try AR(with: url)
 		let arFiles = try await handler.extract()
 		
 		for arFile in arFiles {

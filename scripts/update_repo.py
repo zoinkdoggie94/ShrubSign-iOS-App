@@ -111,15 +111,17 @@ def update_document(document: dict, release: dict, releases: list[dict], version
                 print(f"WARNING: No permanent URL found for historical version {entry.get('version')}", file=sys.stderr)
         historical.append(entry)
 
+    notes = Path(".github/release-notes") / f"{version}.md"
+    description = (
+        notes.read_text(encoding="utf-8").strip().split("\n\n", maxsplit=1)[0]
+        if notes.is_file() else f"ShrubSign {version}. See GitHub Releases for details."
+    )
     entry = {
         "downloadURL": url,
         "version": version,
         "buildVersion": build,
         "date": release_date,
-        "localizedDescription": (
-            f"ShrubSign {version}: improved signing responsiveness, Semi Local by default, "
-            "optional per-device Fully Local SSL setup, and faster repeat builds."
-        ),
+        "localizedDescription": description,
         "minOSVersion": "16.0",
     }
     app["versions"] = [entry, *historical]

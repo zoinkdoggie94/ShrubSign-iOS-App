@@ -116,7 +116,8 @@ class IPADownloadManager: NSObject, ObservableObject {
         let sanitized = URL(fileURLWithPath: filename).lastPathComponent
         let actualName = sanitized.isEmpty ? "download.ipa" : sanitized
         var destinationURL = downloadDirectory.appendingPathComponent(actualName)
-        if fileManager.fileExists(atPath: destinationURL.path) {
+        if fileManager.fileExists(atPath: destinationURL.path)
+            || activeItems.contains(where: { $0.localPath == destinationURL }) {
             destinationURL = downloadDirectory.appendingPathComponent(
                 "\((actualName as NSString).deletingPathExtension)-\(UUID().uuidString.prefix(8)).ipa"
             )
@@ -142,10 +143,9 @@ class IPADownloadManager: NSObject, ObservableObject {
     
     
     func cancelDownload(_ item: DownloadItem) {
+        guard let taskID = activeDownloads.first(where: { $0.value == item.id.uuidString })?.key else { return }
         urlSession.getAllTasks { tasks in
-            if let task = tasks.first(where: { task in
-                self.activeDownloads[task.taskIdentifier] == item.id.uuidString
-            }) {
+            if let task = tasks.first(where: { $0.taskIdentifier == taskID }) {
                 task.cancel()
             }
         }

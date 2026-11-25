@@ -12,7 +12,6 @@ import NimbleViews
 
 struct ServerView: View {
     @StateObject private var _readiness = ShrubInstallReadiness.shared
-    @State private var _profileSheet: ShrubSheetURL?
     @State private var _message: String?
     @State private var _confirmRegenerate = false
     @Environment(\.scenePhase) private var _scenePhase
@@ -45,7 +44,7 @@ struct ServerView: View {
                     _installProfile()
                 } label: {
                     Label(
-                        PersonalSSL.hasCredentials ? "Install local profile again" : "Install local profile",
+                        PersonalSSL.hasDeviceLocalIdentity ? "Install local profile again" : "Install local profile",
                         systemImage: "lock.shield"
                     )
                 }
@@ -71,7 +70,7 @@ struct ServerView: View {
             } header: {
                 Text("One-time setup")
             } footer: {
-                Text("1. Install the local profile.\n2. Open Settings → General → About → Certificate Trust Settings and turn on “ShrubSign Local Installation”.\n3. Come back — ShrubSign verifies it automatically.")
+                Text("1. Install the local profile.\n2. Open Settings → General → About → Certificate Trust Settings and turn on “ShrubSign Personal Local CA”.\n3. Come back — ShrubSign verifies it automatically.")
             }
 
             Section {
@@ -83,13 +82,6 @@ struct ServerView: View {
             } footer: {
                 Text("A new certificate replaces the current one. You must install and trust the new profile afterwards.")
             }
-        }
-        .sheet(item: $_profileSheet, onDismiss: {
-            _readiness.stopProfileServer()
-            _readiness.refresh()
-        }) { sheet in
-            SafariRepresentableView(url: sheet.url)
-                .ignoresSafeArea()
         }
         .alert("Regenerate certificate?", isPresented: $_confirmRegenerate) {
             Button("Regenerate", role: .destructive) { _regenerate() }
@@ -108,13 +100,10 @@ struct ServerView: View {
         _message = nil
         do {
             let url = try _readiness.installProfile()
-            _message = "Approve the profile in Settings, then enable it under Certificate Trust Settings."
-            // Safari handles configuration profiles reliably; an in-app
-            // browser can only display the XML.
             UIApplication.shared.open(url, options: [:]) { opened in
-                if !opened {
-                    _profileSheet = ShrubSheetURL(url: url)
-                }
+                _message = opened
+                    ? "Install the downloaded profile in Settings, then enable its root in Certificate Trust Settings."
+                    : "Safari could not open the profile download."
             }
         } catch {
             _message = error.localizedDescription
@@ -124,9 +113,9 @@ struct ServerView: View {
     private func _verify() {
         _readiness.refresh()
         if PersonalSSL.isTrusted() {
-            _message = "Verified. Fully Local is ready — installs now work without internet."
-        } else if PersonalSSL.hasCredentials {
-            _message = "Not trusted yet. Open Certificate Trust Settings and enable “ShrubSign Local Installation”."
+            _message = "Verified. This device trusts the certificate used for Fully Local installs."
+        } else if PersonalSSL.hasDeviceLocalIdentity {
+            _message = "Not trusted yet. Open Certificate Trust Settings and enable “ShrubSign Personal Local CA”."
         } else {
             _message = "Create the profile first."
         }

@@ -29,6 +29,7 @@ struct SigningView: View {
 	@State var appIcon: UIImage?
 	
 	var signAndInstall: Bool = false
+    let onInstall: ((Signed) -> Void)?
 	
 	// MARK: Fetch
 	@FetchRequest(
@@ -56,9 +57,10 @@ struct SigningView: View {
 	
 	var app: AppInfoPresentable
 	
-	init(app: AppInfoPresentable, signAndInstall: Bool = false) {
+	init(app: AppInfoPresentable, signAndInstall: Bool = false, onInstall: ((Signed) -> Void)? = nil) {
 		self.app = app
 		self.signAndInstall = signAndInstall
+        self.onInstall = onInstall
 		let storedCert = UserDefaults.standard.integer(forKey: "feather.selectedCert")
 		__temporaryCertificate = State(initialValue: storedCert)
 	}
@@ -400,16 +402,17 @@ extension SigningView {
 			using: _temporaryOptions,
 			icon: appIcon,
 			certificate: _selectedCert()
-        ) { [self] error in
+        ) { [self] result in
             _isSigning = false
-            if let error {
+            switch result {
+            case .failure(let error):
                 // Keep all the user's options intact so they can correct the
                 // certificate or tweaks and retry instead of starting over.
                 UIAlertController.showAlertWithOk(
                     title: "Signing failed",
                     message: error.localizedDescription
                 )
-            } else {
+            case .success(let signed):
 				// Remove app after signed option thing
 				if _temporaryOptions.removeApp && !app.isSigned {
 					Storage.shared.deleteApp(for: app)
@@ -417,12 +420,7 @@ extension SigningView {
                 
                 let rule = quickRules.rule(for: app.identifier)
                 if signAndInstall || (installAfter && (rule?.autoInstall ?? true)) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        NotificationCenter.default.post(
-                            name: NSNotification.Name("feather.installApp"),
-                            object: _temporaryOptions.appIdentifier ?? app.identifier
-                        )
-                    }
+                    onInstall?(signed)
                 }
 				dismiss()
 			}

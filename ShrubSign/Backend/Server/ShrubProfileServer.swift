@@ -9,12 +9,15 @@
 
 import Foundation
 import Vapor
+import UIKit
 
+@MainActor
 final class ShrubProfileServer {
     static let shared = ShrubProfileServer()
 
     private var _server: Application?
     private var _stopWorkItem: DispatchWorkItem?
+    private var _backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private(set) var port = 0
 
     private init() {}
@@ -35,6 +38,11 @@ final class ShrubProfileServer {
     /// URL Safari should open.
     @discardableResult
     func start() throws -> URL {
+        if _backgroundTask == .invalid {
+            _backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "ShrubSignTrustProfile") { [weak self] in
+                self?.endBackgroundTask()
+            }
+        }
         if let existing = url, isRunning {
             scheduleStop()
             return existing
@@ -46,9 +54,8 @@ final class ShrubProfileServer {
         var lastError: Error?
         for _ in 0..<6 {
             let candidate = Int.random(in: 4020...8020)
+            let app = ServerInstaller.setupApp(port: candidate, loopbackOnly: true)
             do {
-                let app = try ServerInstaller.setupApp(port: candidate, secure: false)
-
                 app.get("profile.mobileconfig") { _ -> Response in
                     guard let fileURL = PersonalSSL.profileURL,
                           let data = try? Data(contentsOf: fileURL) else {
@@ -72,23 +79,30 @@ final class ShrubProfileServer {
                 if let started = url { return started }
             } catch {
                 lastError = error
-                _server?.server.shutdown()
-                _server?.shutdown()
+                app.shutdown()
                 _server = nil
                 port = 0
             }
         }
 
+        endBackgroundTask()
         throw lastError ?? ShrubInstallError.localServerUnavailable
     }
 
     func stop() {
+        endBackgroundTask()
         _stopWorkItem?.cancel()
         _stopWorkItem = nil
         _server?.server.shutdown()
         _server?.shutdown()
         _server = nil
         port = 0
+    }
+
+    private func endBackgroundTask() {
+        guard _backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(_backgroundTask)
+        _backgroundTask = .invalid
     }
 
     /// Keeps the listener around long enough for the user to finish the
@@ -102,7 +116,4 @@ final class ShrubProfileServer {
         DispatchQueue.main.asyncAfter(deadline: .now() + 900, execute: item)
     }
 
-    deinit {
-        stop()
-    }
 }

@@ -365,9 +365,10 @@ extension BulkSigningView {
             using: config.options,
             icon: config.icon,
             certificate: certificate
-        ) { error in
-            // FR invokes completion on the main actor. One failure does not stop the queue.
-            _results.append(SignResult(name: appName, errorMessage: error?.localizedDescription))
+        ) { result in
+            var message: String?
+            if case .failure(let error) = result { message = error.localizedDescription }
+            _results.append(SignResult(name: appName, errorMessage: message))
             _completedCount += 1
             _signNext(index + 1, configurations: configurations, certificate: certificate)
         }

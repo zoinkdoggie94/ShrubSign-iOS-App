@@ -50,8 +50,8 @@ final class ShrubInstallReadiness: ObservableObject {
     var headline: String {
         switch status {
         case .checking: return "Checking installation…"
-        case .offlineReady: return "Offline installation ready"
-        case .onlineOnly: return "Semi Local ready"
+        case .offlineReady: return "Local profile trusted"
+        case .onlineOnly: return "Semi Local installation"
         case .needsProfile: return "Local profile needed"
         case .needsTrust: return "Trust the local profile"
         }
@@ -62,7 +62,9 @@ final class ShrubInstallReadiness: ObservableObject {
         case .checking:
             return "ShrubSign is checking this device's install setup."
         case .offlineReady:
-            return "Fully Local is trusted on this device. Installs work without internet."
+            return ServerInstaller.mode == .automatic
+                ? "Automatic tries Semi Local first and can fall back to Fully Local if the helper is unavailable."
+                : "This device trusts the certificate used for Fully Local installs."
         case .onlineOnly:
             return "Installs use an online manifest helper. Install the local profile to install offline too."
         case .needsProfile:
@@ -95,11 +97,13 @@ final class ShrubInstallReadiness: ObservableObject {
 
     // MARK: - Refresh (cheap, no network)
     func refresh() {
-        let hasCredentials = PersonalSSL.hasCredentials
+        let hasCredentials = PersonalSSL.hasDeviceLocalIdentity
         let trusted = hasCredentials && PersonalSSL.isTrusted()
         let selected = ServerInstaller.mode
 
-        if trusted {
+        if selected == .localServer {
+            status = .onlineOnly
+        } else if trusted {
             status = .offlineReady
         } else if !hasCredentials {
             status = selected == .fullyLocal ? .needsProfile : .onlineOnly
@@ -111,16 +115,10 @@ final class ShrubInstallReadiness: ObservableObject {
     // MARK: - Profile helpers
     /// Creates credentials if needed and returns the loopback URL Safari should
     /// open so iOS offers the profile for installation immediately.
+    @MainActor
     func installProfile() throws -> URL {
-        PersonalSSL.ensureCredentials()
-        guard PersonalSSL.hasCredentials, PersonalSSL.profileURL != nil else {
-            throw ShrubInstallError.profileMissing
-        }
+        try PersonalSSL.ensureCredentials()
         return try ShrubProfileServer.shared.start()
-    }
-
-    func stopProfileServer() {
-        ShrubProfileServer.shared.stop()
     }
 
     /// Opens the Certificate Trust Settings screen when iOS allows the deep
@@ -148,7 +146,7 @@ final class ShrubInstallReadiness: ObservableObject {
         var results: [Check] = []
 
         // 1. Local credentials
-        if PersonalSSL.hasCredentials {
+        if PersonalSSL.hasDeviceLocalIdentity {
             results.append(Check(
                 id: "credentials",
                 title: "Local certificate",
@@ -165,7 +163,7 @@ final class ShrubInstallReadiness: ObservableObject {
         }
 
         // 2. Trust
-        if PersonalSSL.hasCredentials {
+        if PersonalSSL.hasDeviceLocalIdentity {
             if PersonalSSL.isTrusted() {
                 results.append(Check(
                     id: "trust",
@@ -196,18 +194,21 @@ final class ShrubInstallReadiness: ObservableObject {
 
         // 4. Online manifest helper (only when Semi Local would be used)
         if resolved == .localServer {
+            let bundleID = "com.shrubhub.shrubsign.check"
+            let payload = URL(string: "http://127.0.0.1:4321/payload.ipa")!
             var reachable: String?
             var failures: [String] = []
             for provider in ShrubManifestProviders.all {
                 guard let url = provider.manifestURL(
-                    bundleID: "com.shrubhub.shrubsign.check",
+                    bundleID: bundleID,
                     name: "Check",
                     version: "1.0",
-                    payload: URL(string: "http://127.0.0.1:4321/payload.ipa")!,
+                    payload: payload,
                     port: 4321
                 ) else { continue }
                 do {
-                    try await ServerInstaller.validateManifest(at: url)
+                    try await ServerInstaller.validateManifest(at: url, expectedBundleID: bundleID,
+                                                               expectedPayload: payload, expectedVersion: "1.0")
                     reachable = provider.name
                     break
                 } catch {
@@ -232,22 +233,12 @@ final class ShrubInstallReadiness: ObservableObject {
             }
         }
 
-        // 5. Keep-alive while installing
-        if OptionsManager.shared.options.backgroundAudio {
-            results.append(Check(
-                id: "keepalive",
-                title: "Keep-alive",
-                detail: "ShrubSign keeps the install server running while iOS installs.",
-                level: .pass
-            ))
-        } else {
-            results.append(Check(
-                id: "keepalive",
-                title: "Keep-alive",
-                detail: "Background audio is off. ShrubSign still keeps itself awake during an install, but enabling it helps long installs.",
-                level: .warning
-            ))
-        }
+        results.append(Check(
+            id: "keepalive",
+            title: "Keep-alive",
+            detail: "ShrubSign requests background time while iOS fetches the IPA.",
+            level: .pass
+        ))
 
         // 6. Free storage
         var capacity: Int64 = 0
@@ -256,7 +247,10 @@ final class ShrubInstallReadiness: ObservableObject {
         ), let available = values.volumeAvailableCapacityForImportantUsage {
             capacity = available
         }
-        if capacity > 0, capacity < 1_000_000_000 {
+        if capacity <= 0 {
+            results.append(Check(id: "storage", title: "Free storage",
+                                 detail: "Available storage could not be measured.", level: .warning))
+        } else if capacity < 1_000_000_000 {
             results.append(Check(
                 id: "storage",
                 title: "Free storage",

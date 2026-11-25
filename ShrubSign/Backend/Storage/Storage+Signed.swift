@@ -10,6 +10,7 @@ import UIKit.UIImpactFeedbackGenerator
 
 // MARK: - Class extension: Signed Apps
 extension Storage {
+    @MainActor
 	func addSigned(
 		uuid: String,
 		source: URL? = nil,
@@ -18,10 +19,8 @@ extension Storage {
 		appName: String? = nil,
 		appIdentifier: String? = nil,
 		appVersion: String? = nil,
-		appIcon: String? = nil,
-		
-		completion: @escaping (Error?) -> Void
-	) {
+		appIcon: String? = nil
+	) throws -> Signed {
 		let generator = UIImpactFeedbackGenerator(style: .light)
 		
 		let new = Signed(context: context)
@@ -37,8 +36,13 @@ extension Storage {
 		new.icon = appIcon
 		new.version = appVersion
 		
-        saveContext()
+        do {
+            try context.save()
+        } catch {
+            context.delete(new)
+            throw error
+        }
         generator.impactOccurred()
-        completion(nil)
+        return new
 	}
 }

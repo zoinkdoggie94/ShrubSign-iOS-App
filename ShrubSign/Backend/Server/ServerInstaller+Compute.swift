@@ -2,76 +2,37 @@
 //  ServerInstaller+Compute.swift
 //  ShrubSign
 //
-//  Originally created by samara on 22.08.2024 for feather.
+//  Originally created by samara on 22.08.2024 for Feather.
 //  ORIGINALLY LICENSED UNDER GPL-3.0, MODIFIED FOR USE FOR SHRUBSIGN
-//
-//  Manifest, icon, and install page generation. Everything the system
-//  installer needs is produced locally in 3.2.2; only Semi Local's manifest URL
-//  comes from an external HTTPS helper.
 //
 
 import Foundation
-import UIKit.UIGraphicsImageRenderer
 
 extension ServerInstaller {
-    // MARK: - Endpoints
-    func _endpoint(_ path: String, secure: Bool, host: String? = nil) -> URL {
+    func _endpoint(_ path: String, secure: Bool, token: UUID, host: String? = nil) -> URL {
         var components = URLComponents()
         components.scheme = secure ? "https" : "http"
-        components.host = host ?? (secure ? Self.sni : Self.localHost)
+        components.host = host ?? (secure ? PersonalSSL.host : Self.localHost)
         components.port = secure ? securePort : port
         components.path = path
-        return components.url ?? URL(string: "http://127.0.0.1")!
+        components.queryItems = [URLQueryItem(name: "attempt", value: token.uuidString)]
+        // The host is loopback or a numeric IPv4 address from getLocalAddress().
+        return components.url!
     }
 
-    func payloadURL(secure: Bool) -> URL {
-        _endpoint("/payload.ipa", secure: secure)
+    func payloadURL(secure: Bool, token: UUID) -> URL {
+        _endpoint("/payload.ipa", secure: secure, token: token)
     }
 
-    func manifestURL(secure: Bool) -> URL {
-        _endpoint("/manifest.plist", secure: secure)
+    func manifestURL(secure: Bool, token: UUID) -> URL {
+        _endpoint("/manifest.plist", secure: secure, token: token)
     }
 
-    func iconURL(size: Int, secure: Bool) -> URL {
-        _endpoint(size <= 64 ? "/app57x57.png" : "/app512x512.png", secure: secure)
-    }
-
-    /// The page Safari opens. It immediately redirects to itms-services, which
-    /// is required on iOS 18+ where a direct open from a third-party app is
-    /// ignored without additional entitlements.
-    var installPageURL: URL? {
-        guard port > 0 else { return nil }
-        return _endpoint("/install", secure: false, host: "127.0.0.1")
-    }
-
-    /// A manifest URL that can be used before a hand-off has been prepared.
-    var _fallbackManifestURL: URL? {
-        let provider = ShrubManifestProviders.all.first
-        let bundleID = app.identifier ?? "com.shrubsign.unknown"
-        let name = app.name ?? "ShrubSign App"
-        let version = app.version ?? "1.0"
-        return provider?.manifestURL(
-            bundleID: bundleID,
-            name: name,
-            version: version,
-            payload: payloadURL(secure: false),
-            port: port
-        )
-    }
-
-    // MARK: - itms-services
     static func iTunesLink(_ urlString: String) -> String {
-        guard !urlString.isEmpty else {
-            return "itms-services://?action=download-manifest"
-        }
         var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+?=")
+        allowed.remove(charactersIn: "%#&+?=")
         let encoded = urlString.addingPercentEncoding(withAllowedCharacters: allowed) ?? urlString
         return "itms-services://?action=download-manifest&url=\(encoded)"
-    }
-
-    var handoffLink: String {
-        Self.iTunesLink((activeManifestURL ?? _fallbackManifestURL)?.absoluteString ?? "")
     }
 
     static func escapeHTML(_ value: String) -> String {
@@ -82,155 +43,156 @@ extension ServerInstaller {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    // MARK: - Page
-    /// Safari cannot be force-closed by an external app. Make one install
-    /// request per attempt and offer an explicit way back to ShrubSign.
-    var _installPage: String {
-        let displayName = Self.escapeHTML(app.name ?? "your app")
-        let provider = Self.escapeHTML(activeProviderName ?? "Automatic")
-        let href = Self.escapeHTML(handoffLink)
-        let attemptKey = "shrubsign-install-\(id.uuidString)"
+    func _installPage(manifest: URL, token: UUID) -> String {
+        let displayName = Self.escapeHTML(app.name ?? "Signed app")
+        let href = Self.escapeHTML(Self.iTunesLink(manifest.absoluteString))
         return """
         <!doctype html>
         <html lang="en">
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-        <meta name="color-scheme" content="dark">
-        <title>ShrubSign · Install \(displayName)</title>
+        <meta name="color-scheme" content="light dark">
+        <title>Install \(displayName) · ShrubSign</title>
         <style>
-          :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+          :root {
+            color-scheme: light dark;
+            --surface: #f1f6f2; --card: #fff; --ink: #13261c; --muted: #4b6053;
+            --line: #d7e4da; --accent: #176344; --on-accent: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+          }
+          @media (prefers-color-scheme: dark) {
+            :root {
+              --surface: #111b16; --card: #1b2a22; --ink: #edf7ef; --muted: #bbcbbf;
+              --line: #3a5143; --accent: #a3e7bb; --on-accent: #102b1d;
+            }
+          }
           * { box-sizing: border-box; }
-          body { margin: 0; min-height: 100dvh; padding: max(22px, env(safe-area-inset-top)) 22px max(22px, env(safe-area-inset-bottom));
-                 background: #0e1210; color: #eef4ef; display: grid; place-items: center; }
-          main { width: min(100%, 410px); }
-          .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
-                   font-weight: 750; font-size: 12px; letter-spacing: .12em; color: #b7c7bb; }
-          .mark { width: 30px; height: 30px; background: #254431; border-radius: 9px; color: #98f0b2;
-                  display: grid; place-items: center; font-size: 19px; }
-          section { padding: 25px 23px; background: #19211c; border: 1px solid #2e3b32; border-radius: 22px; }
-          .eyebrow { font-size: 12px; font-weight: 700; color: #9fe8b1; letter-spacing: .05em; text-transform: uppercase; }
-          h1 { margin: 9px 0 12px; font-size: clamp(22px, 6vw, 27px); line-height: 1.18; letter-spacing: -.035em;
-               overflow-wrap: anywhere; }
-          p { color: #bbcbc0; font-size: 14px; line-height: 1.55; margin: 0; }
-          .steps { display: grid; gap: 13px; margin: 19px 0; padding: 17px 0;
-                   border-top: 1px solid #2e3b32; border-bottom: 1px solid #2e3b32; }
-          .step { display: flex; gap: 12px; font-size: 14px; align-items: flex-start; color: #dfebe2; }
-          .number { flex: 0 0 23px; height: 23px; border-radius: 50%; display: grid; place-items: center;
-                    background: #2e4837; color: #a1ebb3; font-size: 12px; font-weight: 700; }
-          a { text-decoration: none; }
-          .action { display: block; padding: 14px; text-align: center; border-radius: 12px;
-                    background: #90e6a6; color: #12291b; font-size: 15px; font-weight: 750; }
-          .action.disabled { pointer-events: none; color: #b4c2b8; background: #384a3e; }
-          .return { display: block; padding: 10px; margin-top: 10px; text-align: center;
-                    color: #bce9c7; font-size: 14px; font-weight: 600; }
-          #status { min-height: 47px; margin: 13px 0 0; font-size: 13px; }
-          footer { color: #899a8e; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 17px; }
+          body {
+            margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center;
+            padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+                     max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+            background: var(--surface); color: var(--ink);
+          }
+          main {
+            width: min(100%, 28rem); padding: clamp(1rem, 6vw, 2rem);
+            background: var(--card); border: 1px solid var(--line); border-radius: 1.5rem;
+          }
+          header { color: var(--accent); font-weight: 700; }
+          h1 { margin: .625rem 0 .75rem; font-size: clamp(1.625rem, 6vw, 2.25rem);
+               line-height: 1.16; overflow-wrap: anywhere; }
+          p { color: var(--muted); line-height: 1.55; margin: 0 0 1.25rem; }
+          nav { display: grid; gap: .625rem; }
+          a {
+            display: flex; align-items: center; justify-content: center;
+            min-height: 2.875rem; padding: .625rem 1rem; text-align: center;
+            border-radius: .75rem; color: var(--accent); font-weight: 650;
+          }
+          a[hidden] { display: none; }
+          a.primary { background: var(--accent); color: var(--on-accent); text-decoration: none; }
+          a[aria-disabled="true"] { background: var(--surface); color: var(--muted); }
+          a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
         </style>
         </head>
         <body>
           <main>
-            <div class="brand"><span class="mark">✳</span> SHRUBSIGN</div>
-            <section>
-              <div class="eyebrow">Ready to install</div>
-              <h1>\(displayName)</h1>
-              <p>Approve the iOS installation prompt to install your signed IPA.</p>
-              <div class="steps">
-                <div class="step"><span class="number">1</span><span>Tap “Open in iTunes” if asked.</span></div>
-                <div class="step"><span class="number">2</span><span>Confirm “Install” in the system prompt.</span></div>
-                <div class="step"><span class="number">3</span><span>Return to ShrubSign for progress.</span></div>
-              </div>
-              <a id="manual" class="action" href="\(href)">Request installation</a>
-              <p id="status" role="status" aria-live="polite">Preparing a single install request…</p>
-              <a class="return" href="shrubsign://install-return">Return to ShrubSign</a>
-            </section>
-            <footer>\(provider) · Keep ShrubSign available until the IPA transfer completes.</footer>
+            <header>ShrubSign</header>
+            <h1>Install \(displayName)</h1>
+            <p id="status" role="status">Tap Install, then confirm the prompt from iOS.</p>
+            <nav aria-label="Installation actions">
+              <a id="install" class="primary" href="\(href)">Install</a>
+              <a id="return" href="shrubsign://install-return">Back to ShrubSign</a>
+            </nav>
           </main>
           <script>
-          (function () {
-            'use strict';
-            const key = '\(attemptKey)';
-            const button = document.getElementById('manual');
+          (() => {
+            const key = 'shrubsign-install-\(token.uuidString)';
+            const install = document.getElementById('install');
+            const back = document.getElementById('return');
             const status = document.getElementById('status');
+            const inApp = location.hash === '#in-app';
+            const stateURL = '/install-status' + location.search;
+            back.hidden = inApp;
             let sent = false;
-            try { sent = sessionStorage.getItem(key) === 'sent'; } catch (_) {}
-            function render() {
-              if (sent) {
-                button.classList.add('disabled');
-                button.setAttribute('aria-disabled', 'true');
-                button.textContent = 'Install request sent';
-                status.textContent = 'Check the iOS prompt. If it did not appear, return to ShrubSign and tap Try again.';
-              }
+            let returned = false;
+            try {
+              sent = sessionStorage.getItem(key) !== null;
+              returned = sessionStorage.getItem(key) === 'returned';
+            } catch (_) {}
+
+            function sentState() {
+              install.setAttribute('aria-disabled', 'true');
+              install.textContent = 'Install requested';
+              status.textContent = inApp
+                ? 'Confirm the iOS prompt. If it does not appear, close this sheet and tap Open in Safari.'
+                : 'Confirm the iOS prompt. If it does not appear, return to ShrubSign to retry.';
             }
-            function requestOnce(event) {
-              if (event) event.preventDefault();
-              if (sent) return;
+            function fetchingState() {
+              status.textContent = 'iOS is downloading the app. You can return to ShrubSign.';
+            }
+            function returnToApp() {
+              returned = true;
+              try { sessionStorage.setItem(key, 'returned'); } catch (_) {}
+              // Browsers only allow script-opened tabs to close themselves.
+              if (window.opener) setTimeout(() => window.close(), 800);
+            }
+            async function checkDownload() {
+              try {
+                const response = await fetch(stateURL, { cache: 'no-store' });
+                if (response.status === 404) {
+                  status.textContent = 'This install attempt expired. Return to ShrubSign to retry.';
+                  return;
+                }
+                if (response.ok && await response.text() === 'fetching') {
+                  fetchingState();
+                  if (!returned && document.visibilityState === 'visible') {
+                    returnToApp();
+                    location.href = back.href;
+                  }
+                  return;
+                }
+              } catch (_) {}
+              if (!returned) setTimeout(checkDownload, 1500);
+            }
+
+            back.addEventListener('click', returnToApp);
+            install.addEventListener('click', event => {
+              if (sent) {
+                event.preventDefault();
+                return;
+              }
               sent = true;
               try { sessionStorage.setItem(key, 'sent'); } catch (_) {}
-              render();
-              window.location.replace(button.href);
+              sentState();
+              if (!inApp) setTimeout(checkDownload, 1500);
+            });
+            if (sent) {
+              sentState();
+              if (!inApp) checkDownload();
             }
-            button.addEventListener('click', requestOnce);
-            render();
-            if (!sent) setTimeout(requestOnce, 350);
-          }());
+            document.addEventListener('visibilitychange', () => {
+              if (!inApp && sent && !returned && document.visibilityState === 'visible') checkDownload();
+            });
+          })();
           </script>
         </body>
         </html>
         """
     }
 
-    // MARK: - Manifest
-    func _manifest(secure: Bool) -> [String: Any] {
-        let bundleID = app.identifier ?? "com.shrubsign.unknown"
-        let version = app.version ?? "1.0"
-        let title = app.name ?? "ShrubSign App"
+    var manifestBuildVersion: String {
+        [buildVersion, app.version].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "1.0"
+    }
 
-        let assets: [[String: String]] = [
-            [
-                "kind": "software-package",
-                "url": payloadURL(secure: secure).absoluteString
-            ],
-            [
-                "kind": "display-image",
-                "url": iconURL(size: 57, secure: secure).absoluteString
-            ],
-            [
-                "kind": "full-size-image",
-                "url": iconURL(size: 512, secure: secure).absoluteString
-            ]
-        ]
-
-        let metadata: [String: String] = [
-            "bundle-identifier": bundleID,
-            "bundle-version": version,
+    func _manifestData(token: UUID) -> Data {
+        let package = ["kind": "software-package", "url": payloadURL(secure: true, token: token).absoluteString]
+        let metadata = [
+            "bundle-identifier": (app.identifier ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            "bundle-version": manifestBuildVersion,
             "kind": "software",
-            "title": title
+            "title": app.name?.isEmpty == false ? (app.name ?? "ShrubSign App") : "ShrubSign App"
         ]
-
-        let item: [String: Any] = [
-            "assets": assets,
-            "metadata": metadata
-        ]
-
-        return ["items": [item]]
-    }
-
-    func _manifestData(secure: Bool) -> Data {
-        (try? PropertyListSerialization.data(
-            fromPropertyList: _manifest(secure: secure),
-            format: .xml,
-            options: .zero
-        )) ?? Data()
-    }
-
-    // MARK: - Icons
-    func _icon(_ radius: CGFloat, secure: Bool) -> Data {
-        let renderer = UIGraphicsImageRenderer(size: .init(width: radius, height: radius))
-        let image = renderer.image { context in
-            UIColor.accent.setFill()
-            context.fill(.init(x: 0, y: 0, width: radius, height: radius))
-        }
-        return image.pngData() ?? Data()
+        let manifest = ["items": [["assets": [package], "metadata": metadata]]]
+        return (try? PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0)) ?? Data()
     }
 }

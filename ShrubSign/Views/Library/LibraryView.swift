@@ -11,14 +11,17 @@ import NimbleViews
 
 // MARK: - View
 struct LibraryView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 	@StateObject var downloadManager = DownloadManager.shared
 	
 	@State private var _selectedInfoAppPresenting: AnyApp?
 	@State private var _selectedSigningAppPresenting: AnyApp?
 	@State private var _selectedInstallAppPresenting: AnyApp?
+    @State private var _pendingSignedInstall: AnyApp?
 	@State private var _selectedAppDylibsPresenting: AnyApp?
 	@State private var _isBulkSigningPresenting = false
     @State private var _isBulkInstallingPresenting = false
+    @State private var _bulkInstallApps: [Signed] = []
 	@State private var _isImportingPresenting = false
 	@State private var _isDownloadingPresenting = false
 
@@ -147,7 +150,8 @@ struct LibraryView: View {
                             .disabled(_selectedApps.isEmpty)
                         } else {
                             Button {
-                                _isBulkInstallingPresenting = true
+                                _bulkInstallApps = _signedApps.filter { $0.uuid.map(_selectedApps.contains) == true }
+                                _isBulkInstallingPresenting = !_bulkInstallApps.isEmpty
                             } label: {
                                 NBButton(.localized("Install"), systemImage: "square.and.arrow.down")
                             }
@@ -175,11 +179,19 @@ struct LibraryView: View {
 				LibraryInfoView(app: app.base)
 			}
 			.sheet(item: $_selectedInstallAppPresenting) { app in
-				InstallPreviewView(app: app.base, isSharing: app.archive)
-					.presentationDetents([.height(360)])
-					.presentationDragIndicator(.visible)			}
-			.fullScreenCover(item: $_selectedSigningAppPresenting) { app in
-				SigningView(app: app.base, signAndInstall: app.signAndInstall)
+                _installPresentation {
+                    InstallPreviewView(app: app.base, isSharing: app.archive)
+                }
+            }
+			.fullScreenCover(item: $_selectedSigningAppPresenting, onDismiss: {
+                guard let pending = _pendingSignedInstall else { return }
+                _pendingSignedInstall = nil
+                _selectedTab = 1
+                _selectedInstallAppPresenting = pending
+            }) { app in
+				SigningView(app: app.base, signAndInstall: app.signAndInstall) { signed in
+                    _pendingSignedInstall = AnyApp(base: signed)
+                }
 					.compatNavigationTransition(id: app.base.uuid ?? "", ns: _namespace)
 			}
 			.fullScreenCover(item: $_selectedAppDylibsPresenting) { app in
@@ -196,13 +208,10 @@ struct LibraryView: View {
 					_selectedTab = 1
 				}
 			}
-            .sheet(isPresented: $_isBulkInstallingPresenting) {
-                BulkInstallPreviewView(apps: _selectedApps.compactMap { id in
-                    (_importedApps.first(where: { $0.uuid == id }) as AppInfoPresentable?)
-                    ?? (_signedApps.first(where: { $0.uuid == id }) as AppInfoPresentable?)
-                })
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            .sheet(isPresented: $_isBulkInstallingPresenting, onDismiss: { _bulkInstallApps = [] }) {
+                _installPresentation {
+                    BulkInstallPreviewView(apps: _bulkInstallApps)
+                }
             }
 			.sheet(isPresented: $_isImportingPresenting) {
 				FileImporterRepresentableView(
@@ -234,12 +243,6 @@ struct LibraryView: View {
 					}
 				}
 			}
-			.onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("feather.installApp"))) { notification in
-                guard let bundleID = notification.object as? String, !bundleID.isEmpty else { return }
-                if let signed = _signedApps.first(where: { $0.identifier == bundleID }) {
-                    _selectedInstallAppPresenting = AnyApp(base: signed)
-                }
-			}
         }
         .onChange(of: _isEditMode) { state in
             if !state.isEditing {
@@ -254,6 +257,19 @@ struct LibraryView: View {
 }
 
 extension LibraryView {
+    @ViewBuilder
+    private func _installPresentation<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if #available(iOS 18, *), horizontalSizeClass == .regular {
+            content()
+                .presentationSizing(.fitted)
+                .presentationDragIndicator(.hidden)
+        } else {
+            content()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
     @ViewBuilder
     private func _importActions() -> some View {
         Button(.localized("Import from Files"), systemImage: "folder") {

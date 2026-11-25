@@ -28,12 +28,8 @@ struct BulkInstallPreviewView: View {
                 _summary()
             }
         }
+        .frame(idealWidth: 420)
         .background(Color(uiColor: .systemBackground))
-        .onAppear(perform: _start)
-    }
-
-    private func _start() {
-        BackgroundAudioManager.shared.start(force: true)
     }
 
     @ViewBuilder
@@ -63,62 +59,66 @@ struct BulkInstallPreviewView: View {
                 success: error == nil,
                 detail: error?.localizedDescription
             ))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                _index += 1
-            }
+            _index += 1
         }
-        .id(app.uuid ?? "index-\(_index)")
+        .id(_index)
     }
 
     @ViewBuilder
     private func _summary() -> some View {
         let failures = _results.filter { !$0.success }.count
-        ScrollView {
-            VStack(spacing: 16) {
-                Image(systemName: failures == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .font(.system(size: 44))
-                    .foregroundStyle(failures == 0 ? Color.green : Color.orange)
-
-                Text("Bulk install finished")
-                    .font(.headline)
-                Text(failures == 0
-                     ? "\(_results.count) app(s) installed."
-                     : "\(_results.count - failures) installed, \(failures) failed.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                VStack(spacing: 8) {
-                    ForEach(_results) { result in
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundStyle(result.success ? Color.green : Color.red)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(result.name)
-                                    .font(.subheadline.weight(.medium))
-                                    .lineLimit(2)
-                                if let detail = result.detail {
-                                    Text(detail)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                }
-
-                Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-            }
-            .padding(24)
-            .frame(maxWidth: 520)
-            .frame(maxWidth: .infinity)
+        ViewThatFits(in: .vertical) {
+            _summaryContent(failures: failures)
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollView { _summaryContent(failures: failures) }
         }
+    }
+
+    private func _summaryContent(failures: Int) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: failures == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(failures == 0 ? Color.green : Color.orange)
+
+            Text("Bulk install finished")
+                .font(.headline)
+            Text(failures == 0
+                 ? "\(_results.count) app(s) installed."
+                 : "\(_results.count - failures) installed, \(failures) failed.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 8) {
+                ForEach(_results) { result in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(result.success ? Color.green : Color.red)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.name)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(2)
+                            if let detail = result.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+
+            Button("Done") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
+        .padding(24)
+        .frame(maxWidth: 460)
+        .frame(maxWidth: .infinity)
     }
 }
 

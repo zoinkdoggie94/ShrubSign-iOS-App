@@ -20,29 +20,11 @@ import SystemConfiguration.CaptiveNetwork
 
 // MARK: - TLS/Setup
 extension ServerInstaller {
-    private static let env: Environment = {
-        var env = try! Environment.detect()
-        try! LoggingSystem.bootstrap(from: &env)
-        return env
-    }()
-
-    static func setupApp(port: Int, secure: Bool) throws -> Application {
-        let app = Application(env)
+    static func setupApp(port: Int, tls: TLSConfiguration? = nil, loopbackOnly: Bool = false) -> Application {
+        let app = Application(.production)
         app.threadPool = .init(numberOfThreads: 1)
-
-        if secure {
-            // Do not silently launch a plain HTTP server whose manifest claims
-            // to use HTTPS. Surface the incomplete Fully Local setup instead.
-            guard let tls = try Self.tls() else {
-                throw ShrubInstallError.secureServerUnavailable
-            }
-            app.http.server.configuration.tlsConfiguration = tls
-        }
-
-        // Bind loopback unless the user explicitly asked for local network
-        // installs. Binding 0.0.0.0 makes iOS ask for the local network
-        // permission, and refusing it left the install server unreachable.
-        let bindingAddress = allowLocalNetworkInstall() ? "0.0.0.0" : "127.0.0.1"
+        app.http.server.configuration.tlsConfiguration = tls
+        let bindingAddress = !loopbackOnly && allowLocalNetworkInstall() ? "0.0.0.0" : PersonalSSL.host
         app.http.server.configuration.hostname = bindingAddress
         app.http.server.configuration.tcpNoDelay = true
         app.http.server.configuration.address = .hostname(bindingAddress, port: port)
@@ -62,62 +44,20 @@ extension ServerInstaller {
         return "127.0.0.1"
     }
 
-    /// Host name used by the HTTPS manifest. Device-generated certificates are
-    /// always issued for 127.0.0.1; imported certificate packs keep their own
-    /// common name so older setups keep working.
-    static var sni: String {
-        if PersonalSSL.hasDeviceLocalIdentity { return PersonalSSL.host }
-        if let commonName = readCommonName(), !commonName.isEmpty { return commonName }
-        return PersonalSSL.host
-    }
-
     static func tls() throws -> TLSConfiguration? {
-        guard
-            let crt = getUrl("server", ext: "crt"),
-            let pem = getUrl("server", ext: "pem")
-        else {
-            return nil
-        }
-
+        let crt = PersonalSSL.directory.appendingPathComponent("server.crt")
+        let pem = PersonalSSL.directory.appendingPathComponent("server.pem")
+        guard PersonalSSL.hasDeviceLocalIdentity else { return nil }
         let certificates = try NIOSSLCertificate.fromPEMFile(crt.path)
         guard !certificates.isEmpty else { return nil }
 
-        return try TLSConfiguration.makeServerConfiguration(
-            certificateChain: certificates.map { NIOSSLCertificateSource.certificate($0) },
+        let configuration = TLSConfiguration.makeServerConfiguration(
+            certificateChain: certificates.map { .certificate($0) },
             privateKey: .privateKey(try NIOSSLPrivateKey(file: pem.path, format: .pem))
         )
-    }
-
-    static func readCommonName() -> String? {
-        guard let url = getUrl("commonName", ext: "txt") else {
-            return nil
-        }
-        return try? String(contentsOf: url, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-// MARK: - File locations
-extension ServerInstaller {
-    static func getUrl(_ name: String, ext: String) -> URL? {
-        let fileManager = FileManager.default
-
-        let serverURL = PersonalSSL.directory.appendingPathComponent("\(name).\(ext)")
-        if fileManager.fileExists(atPath: serverURL.path) {
-            return serverURL
-        }
-
-        let documentsURL = URL.documentsDirectory.appendingPathComponent("\(name).\(ext)")
-        if fileManager.fileExists(atPath: documentsURL.path) {
-            return documentsURL
-        }
-
-        let oldServerURL = URL.documentsDirectory.appendingPathComponent("Server").appendingPathComponent("\(name).\(ext)")
-        if fileManager.fileExists(atPath: oldServerURL.path) {
-            return oldServerURL
-        }
-
-        return Bundle.main.url(forResource: name, withExtension: ext)
+        // Validate the key and certificate before binding a port.
+        _ = try NIOSSLContext(configuration: configuration)
+        return configuration
     }
 
     static func getLocalAddress() -> String? {
@@ -125,18 +65,19 @@ extension ServerInstaller {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
 
         if getifaddrs(&ifaddr) == 0 {
+            defer { freeifaddrs(ifaddr) }
             var pointer = ifaddr
-            while pointer != nil {
-                let interface = pointer!.pointee
-                let addrFamily = interface.ifa_addr.pointee.sa_family
+            while let current = pointer {
+                let interface = current.pointee
+                pointer = interface.ifa_next
 
-                if addrFamily == UInt8(AF_INET) {
+                if let socketAddress = interface.ifa_addr, socketAddress.pointee.sa_family == UInt8(AF_INET) {
                     let name = String(cString: interface.ifa_name)
                     if name == "en0" || name == "pdp_ip0" {
                         var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                         if getnameinfo(
-                            interface.ifa_addr,
-                            socklen_t(interface.ifa_addr.pointee.sa_len),
+                            socketAddress,
+                            socklen_t(socketAddress.pointee.sa_len),
                             &hostname,
                             socklen_t(hostname.count),
                             nil,
@@ -144,12 +85,11 @@ extension ServerInstaller {
                             NI_NUMERICHOST
                         ) == 0 {
                             address = String(cString: hostname)
+                            if name == "en0" { return address }
                         }
                     }
                 }
-                pointer = pointer!.pointee.ifa_next
             }
-            freeifaddrs(ifaddr)
         }
 
         return address
@@ -184,16 +124,15 @@ enum PersonalSSL {
         hasCredentials && profileURL != nil
     }
 
-    /// Generates credentials the first time they are needed. Safe to call often.
-    @discardableResult
-    static func ensureCredentials() -> Bool {
-        if hasCredentials { return true }
-        return (try? generate()) != nil
+    /// Preserve an existing profile and its trust setting when all identity files are present.
+    static func ensureCredentials() throws {
+        if !hasDeviceLocalIdentity { try generate() }
     }
 
     /// Evaluates the server certificate against the system trust store,
     /// including roots the user installed and explicitly trusted.
     static func isTrusted() -> Bool {
+        guard hasDeviceLocalIdentity else { return false }
         let certificates = loadCertificates()
         guard !certificates.isEmpty else { return false }
         let policy = SecPolicyCreateSSL(true, host as CFString)
@@ -202,6 +141,7 @@ enum PersonalSSL {
               let trust else {
             return false
         }
+        SecTrustSetNetworkFetchAllowed(trust, false)
         return SecTrustEvaluateWithError(trust, nil)
     }
 
@@ -369,7 +309,8 @@ enum PersonalSSL {
         }) == errSecSuccess else {
             throw failure("Cannot generate a certificate serial.")
         }
-        serial[0] &= 0x7f
+        // An ASN.1 INTEGER must use the shortest encoding and be positive.
+        serial[0] = (serial[0] & 0x3f) | 0x40
         let serialNumber = der(0x02, serial)
 
         let basicConstraints = ext([0x55, 0x1d, 0x13], true,

@@ -27,12 +27,12 @@ enum FR {
 				try await handler.move()
 				try await handler.addToDatabase()
                 
-                                try? await handler.clean()
+                try? await handler.clean()
 				await MainActor.run {
 					completion(nil)
 				}
 			} catch {
-				try await handler.clean()
+				try? await handler.clean()
 				await MainActor.run {
 					completion(error)
 				}
@@ -45,7 +45,7 @@ enum FR {
 		using options: Options,
 		icon: UIImage?,
 		certificate: CertificatePair?,
-		completion: @escaping (Error?) -> Void
+		completion: @escaping (Result<Signed, Error>) -> Void
 	) {
         let recordID = UUID()
         let displayName = app.name ?? "Unnamed IPA"
@@ -64,20 +64,20 @@ enum FR {
                 let start = ProcessInfo.processInfo.systemUptime
                 try await handler.copy()
                 let copied = ProcessInfo.processInfo.systemUptime
-                try await handler.modify()
+                let signed = try await handler.modify()
                 let modified = ProcessInfo.processInfo.systemUptime
                 print("[ShrubSign] Signing stages: prepare=\(Int((copied - start) * 1000))ms, modify+sign+save=\(Int((modified - copied) * 1000))ms")
                 try? await handler.clean()
 				
                 await MainActor.run {
                     ShrubSigningCenter.shared.finish(id: recordID, error: nil)
-                    completion(nil)
+                    completion(.success(signed))
                 }
             } catch {
                 try? await handler.clean()
                 await MainActor.run {
                     ShrubSigningCenter.shared.finish(id: recordID, error: error)
-                    completion(error)
+                    completion(.failure(error))
                 }
             }
         }

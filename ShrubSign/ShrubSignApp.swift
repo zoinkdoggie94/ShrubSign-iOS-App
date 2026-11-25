@@ -57,17 +57,22 @@ struct ShrubSignApp: App {
 				_ = DownloadManager.shared.startDownload(from: downloadURL, id: "FeatherManualDownload_\(UUID().uuidString)")
 			}
 		} else {
-			if url.pathExtension == "ipa" || url.pathExtension == "tipa" {
-				if FileManager.default.isFileFromFileProvider(at: url) {
-					guard url.startAccessingSecurityScopedResource() else { return }
-					FR.handlePackageFile(url) { _ in }
-				} else {
-					FR.handlePackageFile(url) { _ in }
-				}
-				
-				return
-			}
-			
+            let extensionName = url.pathExtension.lowercased()
+            if extensionName == "ipa" || extensionName == "tipa" {
+                let needsAccess = FileManager.default.isFileFromFileProvider(at: url)
+                if needsAccess && !url.startAccessingSecurityScopedResource() {
+                    UIAlertController.showAlertWithOk(title: "Import failed", message: "ShrubSign could not access this IPA.")
+                    return
+                }
+                FR.handlePackageFile(url) { error in
+                    if needsAccess { url.stopAccessingSecurityScopedResource() }
+                    if let error {
+                        UIAlertController.showAlertWithOk(title: "Import failed", message: error.localizedDescription)
+                    }
+                }
+                return
+            }
+
             if url.pathExtension == "ksign" {
                 UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Legacy Ksign certificate file (.ksign) is unsupported from v1.5.1, please refer to use .p12 and .mobileprovision instead."))
             }
@@ -91,7 +96,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         _clean()
         
-        _copyServerCertificates()
         _configureLocalInstallDefault()
         _addDefaultCertificates()
         return true
@@ -150,49 +154,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
     
-    private func _copyServerCertificates() {
-        let fileManager = FileManager.default
-        let serverDirectory = URL.documentsDirectory.appendingPathComponent("App/Server")
-        
-        try? fileManager.createDirectoryIfNeeded(at: serverDirectory)
-        
-        let filesToCopy = ["server.crt", "server.pem", "commonName.txt"]
-        
-        for fileName in filesToCopy {
-            guard let bundleURL = Bundle.main.url(forResource: fileName.components(separatedBy: ".").first!, withExtension: fileName.components(separatedBy: ".").last!) else {
-                print("File \(fileName) not found in app bundle")
-                continue
-            }
-            
-            let destinationURL = serverDirectory.appendingPathComponent(fileName)
-            
-            // Never replace a user's locally generated and trusted credentials.
-            if fileManager.fileExists(atPath: destinationURL.path) { continue }
-
-            do {
-                try fileManager.copyItem(at: bundleURL, to: destinationURL)
-            } catch {
-                print("Error copying \(fileName): \(error)")
-            }
-        }
-    }
-    
     private func _configureLocalInstallDefault() {
         let defaults = UserDefaults.standard
 
-        // 3.2.2: every install used to default to Semi Local, whose external
-        // manifest service is offline. Move once to Automatic, which uses Fully
-        // Local as soon as the local profile is trusted, and keep loopback as
-        // the default host so no local network permission is required.
+        // Preserve the selected mode on devices that already migrated.
         if !defaults.bool(forKey: ShrubInstallKey.migrationV2) {
             defaults.set(ShrubInstallMode.automatic.rawValue, forKey: ShrubInstallKey.mode)
             defaults.set(false, forKey: ShrubInstallKey.allowLocalNetwork)
             defaults.set(true, forKey: ShrubInstallKey.migrationV2)
         }
 
-        // Create the device certificate early so the one-tap profile is ready
-        // the first time the user opens Installation settings.
-        _ = PersonalSSL.ensureCredentials()
     }
 
     private func _addDefaultCertificates() {

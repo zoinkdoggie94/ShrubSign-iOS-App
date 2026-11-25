@@ -22,7 +22,7 @@ enum ShrubInstallKey {
 
 // MARK: - Modes
 enum ShrubInstallMode: Int, CaseIterable, Identifiable {
-    /// Uses Fully Local when the trust profile is installed, otherwise Semi Local.
+    /// Uses Semi Local first and trusted Fully Local as a fallback.
     case automatic = 2
     case fullyLocal = 0
     case localServer = 1
@@ -76,6 +76,10 @@ enum ShrubInstallError: LocalizedError {
     case manifestUnavailable(String)
     case invalidManifest(String)
     case invalidPage
+    case selfInstall
+    case handoffTimedOut
+    case completionUnconfirmed
+    case installSheetClosed
 
     var errorDescription: String? {
         switch self {
@@ -96,24 +100,20 @@ enum ShrubInstallError: LocalizedError {
         case .invalidManifest(let detail):
             return "The install manifest was rejected. \(detail)"
         case .invalidPage:
-            return "The local install page could not be opened."
+            return "The install page could not open in Safari. Tap Try again to open a new install page."
+        case .selfInstall:
+            return "Use another installer to update ShrubSign."
+        case .handoffTimedOut:
+            return "iOS did not request the IPA. Try again and confirm the iOS prompt, or open the install page in Safari."
+        case .completionUnconfirmed:
+            return "iOS requested the IPA, but ShrubSign could not confirm the result. Check the app on your Home Screen before retrying."
+        case .installSheetClosed:
+            return "The installer was closed before ShrubSign could confirm the result."
         }
     }
 }
 
-// MARK: - Sheets
-struct ShrubSheetURL: Identifiable {
-    let id = UUID()
-    let url: URL
-}
-
 // MARK: - Manifest providers
-struct ShrubManifestResolution {
-    let url: URL
-    let providerName: String
-    let isLocal: Bool
-}
-
 struct ShrubManifestProvider: Identifiable {
     let id: String
     let name: String
@@ -139,6 +139,8 @@ struct ShrubManifestProvider: Identifiable {
                 URLQueryItem(name: "fetchurl", value: payload.absoluteString)
             ])
             components.queryItems = items
+            // Form-style query decoders treat a literal plus as a space.
+            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
             return components.url
         }
     }
@@ -162,7 +164,7 @@ enum ShrubManifestProviders {
 
         let custom = UserDefaults.standard.string(forKey: ShrubInstallKey.customManifestURL)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !custom.isEmpty, URL(string: custom)?.host != nil {
+        if let url = URL(string: custom), url.scheme?.lowercased() == "https", url.host != nil {
             providers.insert(
                 ShrubManifestProvider(
                     id: "custom",

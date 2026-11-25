@@ -36,7 +36,7 @@ struct InstallationView: View {
                     }
                 }
             } footer: {
-                Text("Server (Recommended):\nSigns, then hands the app to iOS from this device.\n\nIDevice (advanced):\nUses a VPN and a pairing file to write to the device directly. No certificates or local server needed.")
+                Text("Server hands a signed IPA to iOS from this device. IDevice uses a VPN and pairing file to install directly.")
             }
 
             if _installationMethod == 0 {
@@ -91,14 +91,6 @@ extension InstallationView {
                                 Text(mode.title)
                                     .font(.headline)
                                     .foregroundStyle(.primary)
-                                if mode == .automatic {
-                                    Text("Recommended")
-                                        .font(.caption2.weight(.semibold))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.accentColor.opacity(0.16), in: Capsule())
-                                        .foregroundStyle(Color.accentColor)
-                                }
                             }
                             Text(mode.subtitle)
                                 .font(.caption)
@@ -118,32 +110,16 @@ extension InstallationView {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(mode.rawValue == _mode ? .isSelected : [])
             }
         } header: {
             Text("Installation mode")
-        } footer: {
-            Text("Automatic uses Fully Local as soon as the profile is trusted, and falls back to Semi Local otherwise.")
         }
     }
 
     @ViewBuilder
     private func _diagnosticsSection() -> some View {
         Section {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: _readiness.symbol)
-                    .font(.title3)
-                    .foregroundStyle(_readiness.tint)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(_readiness.headline)
-                        .font(.subheadline.weight(.semibold))
-                    Text(_readiness.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(.vertical, 3)
-
             Button {
                 Task { await _readiness.runChecks() }
             } label: {

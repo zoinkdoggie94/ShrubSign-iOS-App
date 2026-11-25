@@ -6,6 +6,7 @@
 //
 
 import UIKit.UIApplication
+import ObjectiveC
 
 extension UIApplication {
 	/// Opens an app with an identifier
@@ -41,28 +42,12 @@ extension UIApplication {
     static public func appIsInstalled(_ identifier: String) -> Bool? {
         guard !identifier.isEmpty else { return nil }
 
-        let classNameBase64 = "TFNBcHBsaWNhdGlvbldvcmtzcGFjZQ=="             // LSApplicationWorkspace
-        let defaultSelectorBase64 = "ZGVmYXVsdFdvcmtzcGFjZQ=="               // defaultWorkspace
-        let installedSelectorBase64 = "YXBwbGljYXRpb25Jc0luc3RhbGxlZDo="   // applicationIsInstalled:
+        guard let workspace = installWorkspace() else { return nil }
 
-        guard
-            let className = String(data: Data(base64Encoded: classNameBase64)!, encoding: .utf8),
-            let defaultSelector = String(data: Data(base64Encoded: defaultSelectorBase64)!, encoding: .utf8),
-            let installedSelectorName = String(data: Data(base64Encoded: installedSelectorBase64)!, encoding: .utf8),
-            let workspaceClass = NSClassFromString(className) as? NSObject.Type,
-            let workspace = workspaceClass.perform(NSSelectorFromString(defaultSelector))?
-                .takeUnretainedValue() as? NSObject
-        else { return nil }
-
-        let selector = NSSelectorFromString(installedSelectorName)
-        guard workspace.responds(to: selector) else { return nil }
-
-        // A BOOL-returning Objective-C method cannot be read through perform()
-        // because that treats the return value as an object. Call it directly.
-        typealias IsInstalledFunction = @convention(c) (NSObject, Selector, NSString) -> Bool
-        let implementation = workspace.method(for: selector)
-        let function = unsafeBitCast(implementation, to: IsInstalledFunction.self)
-        return function(workspace, selector, identifier as NSString)
+        let selector = NSSelectorFromString("applicationIsInstalled:")
+        guard workspace.responds(to: selector), let method = workspace.method(for: selector) else { return nil }
+        typealias IsInstalled = @convention(c) (NSObject, Selector, NSString) -> Bool
+        return unsafeBitCast(method, to: IsInstalled.self)(workspace, selector, identifier as NSString)
     }
 
     
@@ -76,28 +61,40 @@ extension UIApplication {
         makeSynchronous synchronous: Bool = true
     ) -> Double? {
 
-        let classNameBase64 = "TFNBcHBsaWNhdGlvbldvcmtzcGFjZQ==" // LSApplicationWorkspace
-        let defaultSelectorBase64 = "ZGVmYXVsdFdvcmtzcGFjZQ=="   // defaultWorkspace
-        let progressSelectorBase64 = "aW5zdGFsbFByb2dyZXNzRm9yQnVuZGxlSUQ6bWFrZVN5bmNocm9ub3VzOg==" // installProgressForBundleID:makeSynchronous:
+        let selector = NSSelectorFromString("installProgressForBundleID:makeSynchronous:")
+        guard let workspace = installWorkspace(),
+              workspace.responds(to: selector), let method = workspace.method(for: selector) else { return nil }
 
-        guard
-            let className = String(data: Data(base64Encoded: classNameBase64)!, encoding: .utf8),
-            let defaultSelector = String(data: Data(base64Encoded: defaultSelectorBase64)!, encoding: .utf8),
-            let progressSelector = String(data: Data(base64Encoded: progressSelectorBase64)!, encoding: .utf8),
-            let workspaceClass = NSClassFromString(className) as? NSObject.Type,
-            let workspace = workspaceClass.perform(NSSelectorFromString(defaultSelector))?.takeUnretainedValue()
-        else { return nil }
+        // The last argument in this Objective-C method is a scalar. Calling
+        // perform(_:with:with:) passes a boxed object instead of a BOOL.
+        typealias InstallProgress = @convention(c) (NSObject, Selector, NSString, Bool) -> Unmanaged<AnyObject>?
+        let function = unsafeBitCast(method, to: InstallProgress.self)
+        let progress = function(workspace, selector, identifier as NSString, synchronous)?.takeUnretainedValue()
+        return (progress as? Progress)?.fractionCompleted
+    }
 
-        let result = workspace.perform(
-            NSSelectorFromString(progressSelector),
-            with: identifier,
-            with: synchronous
-        )?.takeUnretainedValue()
-
-        if let number = result as? Progress {
-            return number.fractionCompleted
+    /// Returns the registered build number if Launch Services exposes it.
+    static public func installedBundleVersion(_ identifier: String) -> String? {
+        let selector = NSSelectorFromString("applicationProxyForIdentifier:")
+        guard let proxyClass = NSClassFromString("LSApplicationProxy") as? NSObject.Type,
+              class_getClassMethod(proxyClass, selector) != nil,
+              let proxy = proxyClass.perform(selector, with: identifier)?.takeUnretainedValue() as? NSObject else {
+            return nil
         }
+        let placeholder = NSSelectorFromString("isPlaceholder")
+        if proxy.responds(to: placeholder), let method = proxy.method(for: placeholder) {
+            typealias IsPlaceholder = @convention(c) (NSObject, Selector) -> Bool
+            if unsafeBitCast(method, to: IsPlaceholder.self)(proxy, placeholder) { return nil }
+        }
+        let version = NSSelectorFromString("bundleVersion")
+        guard proxy.responds(to: version) else { return nil }
+        return proxy.perform(version)?.takeUnretainedValue() as? String
+    }
 
-        return nil
+    private static func installWorkspace() -> NSObject? {
+        let selector = NSSelectorFromString("defaultWorkspace")
+        guard let workspaceClass = NSClassFromString("LSApplicationWorkspace") as? NSObject.Type,
+              class_getClassMethod(workspaceClass, selector) != nil else { return nil }
+        return workspaceClass.perform(selector)?.takeUnretainedValue() as? NSObject
     }
 }
